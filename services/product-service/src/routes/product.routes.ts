@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { ProductController } from '../controllers/product.controller';
-
 const router: Router = Router();
 const controller = new ProductController();
 
@@ -300,5 +299,5 @@ router.post('/:id/images', controller.addImages);
  *         description: Product not found
  */
 router.post('/:id/variants', controller.createVariant);
-
+router.get('/variants/:variantId', controller.getVariantById);
 export default router;

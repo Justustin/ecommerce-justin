@@ -29,6 +29,13 @@ export class ProductService {
         }
         return product;
     }
+    async getVariantById(variantId: string) {
+        const variant = await this.repository.findVariantById(variantId);
+        if (!variant) {
+            throw new Error('Variant not found');
+        }
+        return variant;
+    }
     async createVariant(data: CreateVariantDTO) { 
         const product = await this.repository.createVariant(data);
         if (!product) {

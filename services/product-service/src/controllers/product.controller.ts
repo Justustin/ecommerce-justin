@@ -52,6 +52,14 @@ export class ProductController {
         res.status(404).json({error: error.message})
     }
   }
+  getVariantById = async (req: Request, res: Response) => {
+    try {
+      const variant = await this.service.getVariantById(req.params.variantId);
+      res.json({ success: true, data: variant });
+    } catch (error: any) {
+      res.status(404).json({ success: false, error: error.message });
+    }
+  };
 
   updateProduct = async (req: Request, res: Response) => {
     try {

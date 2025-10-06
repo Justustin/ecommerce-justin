@@ -196,4 +196,20 @@ export class ProductRepository {
       }
     });
   }
+  async findVariantById(variantId: string) {
+  return prisma.product_variants.findUnique({
+    where: { id: variantId },
+    include: {
+      products: {
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          factory_id: true,
+          base_price: true
+        }
+      }
+    }
+  });
+}
 }

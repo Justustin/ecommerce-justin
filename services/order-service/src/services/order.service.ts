@@ -1,0 +1,187 @@
+import { OrderRepository } from '../repositories/order.repository';
+import { OrderUtils } from '../utils/order.utils';
+import {
+  CreateOrderDTO,
+  UpdateOrderStatusDTO,
+  CreateBulkOrdersDTO,
+  OrderFilters,
+  PaginatedResponse
+} from '../types';
+
+export class OrderService {
+  private repository: OrderRepository;
+  private utils: OrderUtils;
+
+  constructor() {
+    this.repository = new OrderRepository();
+    this.utils = new OrderUtils();
+  }
+
+  async createOrder(data: CreateOrderDTO) {
+    // Validation
+    if (!data.items || data.items.length === 0) {
+      throw new Error('Order must have at least one item');
+    }
+
+    if (!data.shippingAddress.name || !data.shippingAddress.address) {
+      throw new Error('Complete shipping address required');
+    }
+
+    // Build order items with pricing and snapshots
+    const enrichedItems = await Promise.all(
+      data.items.map(async (item) => {
+        const price = await this.utils.getProductPrice(item.productId, item.variantId);
+        const factoryId = await this.utils.getProductFactoryId(item.productId);
+        const snapshot = await this.utils.buildProductSnapshot(item.productId, item.variantId);
+
+        return {
+          productId: item.productId,
+          variantId: item.variantId,
+          factoryId,
+          quantity: item.quantity,
+          unitPrice: price,
+          subtotal: price * item.quantity,
+          sku: snapshot.product.sku,
+          productName: snapshot.product.name,
+          variantName: snapshot.variant?.variant_name,
+          productSnapshot: snapshot
+        };
+      })
+    );
+
+    // Group items by factory
+    const factoryGroups = new Map<string, any[]>();
+    enrichedItems.forEach(item => {
+      const existing = factoryGroups.get(item.factoryId) || [];
+      existing.push(item);
+      factoryGroups.set(item.factoryId, existing);
+    });
+
+    // Generate base order number
+    const orderNumber = this.utils.generateOrderNumber();
+
+    // Create separate orders per factory
+    const orders = await this.repository.createOrder(
+      data,
+      orderNumber,
+      factoryGroups
+    );
+
+    return {
+      success: true,
+      ordersCreated: orders.length,
+      orders,
+      message: factoryGroups.size > 1 
+        ? `Created ${orders.length} orders (items from ${factoryGroups.size} factories)`
+        : 'Order created successfully'
+    };
+  }
+
+  async createBulkOrdersFromSession(data: CreateBulkOrdersDTO) {
+    if (!data.participants || data.participants.length === 0) {
+      throw new Error('No participants to create orders for');
+    }
+
+    const orders = await this.repository.createBulkOrders(data);
+
+    return {
+      success: true,
+      ordersCreated: orders.length,
+      orders
+    };
+  }
+
+  async getOrder(id: string) {
+    const order = await this.repository.findById(id);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    return order;
+  }
+
+  async getOrderByNumber(orderNumber: string) {
+    const order = await this.repository.findByOrderNumber(orderNumber);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    return order;
+  }
+
+  async getOrders(filters: OrderFilters): Promise<PaginatedResponse<any>> {
+    return this.repository.findAll(filters);
+  }
+
+  async updateOrderStatus(data: UpdateOrderStatusDTO) {
+    const order = await this.repository.findById(data.orderId);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    // Business rules for status transitions
+    const validTransitions: Record<string, string[]> = {
+      pending_payment: ['paid', 'failed', 'cancelled'],
+      paid: ['processing', 'refunded', 'cancelled'],
+      processing: ['ready_for_pickup', 'cancelled'],
+      ready_for_pickup: ['picked_up', 'cancelled'],
+      picked_up: ['in_transit'],
+      in_transit: ['delivered', 'failed'],
+      delivered: ['refunded'],
+      cancelled: ['refunded'],
+      refunded: [],
+      failed: ['pending_payment']
+    };
+
+    const currentStatus = order.status;
+    const allowed = validTransitions[currentStatus] || [];
+
+    if (!allowed.includes(data.newStatus)) {
+      throw new Error(
+        `Cannot transition from ${currentStatus} to ${data.newStatus}`
+      );
+    }
+
+    return this.repository.updateStatus(data);
+  }
+
+  async updateShippingCost(orderId: string, shippingCost: number, taxAmount: number = 0) {
+    if (shippingCost < 0) {
+      throw new Error('Shipping cost cannot be negative');
+    }
+    return this.repository.updateShippingCost(orderId, shippingCost, taxAmount);
+  }
+
+  async cancelOrder(orderId: string, userId?: string) {
+    const order = await this.repository.findById(orderId);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    // Only user or admin can cancel
+    if (userId && order.user_id !== userId) {
+      // TODO: Check if userId is admin
+      throw new Error('Unauthorized to cancel this order');
+    }
+
+    return this.repository.cancelOrder(orderId, userId);
+  }
+
+  async getOrderStats(filters: Partial<OrderFilters>) {
+    return this.repository.getOrderStats(filters);
+  }
+
+  async getUserOrders(userId: string, page = 1, limit = 20) {
+    return this.repository.findAll({
+      userId,
+      page,
+      limit
+    });
+  }
+
+  async getFactoryOrders(factoryId: string, page = 1, limit = 20) {
+    return this.repository.findAll({
+      factoryId,
+      page,
+      limit
+    });
+  }
+}
