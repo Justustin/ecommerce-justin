@@ -1,11 +1,14 @@
 import { OrderRepository } from '../repositories/order.repository';
 import { OrderUtils } from '../utils/order.utils';
+import axios, { AxiosError } from 'axios';
+
 import {
   CreateOrderDTO,
   UpdateOrderStatusDTO,
   CreateBulkOrdersDTO,
   OrderFilters,
-  PaginatedResponse
+  PaginatedResponse,
+  CreatePaymentDTO
 } from '../types';
 
 export class OrderService {
@@ -65,6 +68,35 @@ export class OrderService {
       data,
       orderNumber,
       factoryGroups
+    );
+
+    const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL
+
+    const payments = await Promise.all(
+        orders.map(async (order) => {
+            const totalAmount = order.items.reduce((sum: number, item: any) => sum + item.subtotal, 0);
+            const paymentData: CreatePaymentDTO = {
+                userId: data.userId,
+                orderId: order.id,
+                amount: totalAmount,
+                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                isEscrow: !!order.group_session_id // Set isEscrow for group buying orders
+            };
+            try {
+                console.log(`Calling PaymentService for order ${order.id} with amount ${totalAmount}`);
+                const response = await axios.post(`${this.paymentServiceUrl}/api/payments`, paymentData, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // Add API key if required
+                        // 'Authorization': `Bearer ${process.env.PAYMENT_SERVICE_API_KEY}`
+                    }
+                });
+                return response.data; // Expected: { payment, paymentUrl, invoiceId }
+            } catch (error: any) {
+                console.error(`Failed to create payment for order ${order.id}:`, error.message);
+                throw new Error(`Payment creation failed: ${error.response?.data?.message || error.message}`);
+            }
+        })
     );
 
     return {

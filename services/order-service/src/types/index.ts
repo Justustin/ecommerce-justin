@@ -111,3 +111,10 @@ export interface ProductSnapshot {
     city?: string;
   };
 }
+export interface CreatePaymentDTO {
+  userId: string;
+  orderId: string;
+  amount: number;
+  expiresAt?: string;
+  isEscrow?: boolean;
+}
