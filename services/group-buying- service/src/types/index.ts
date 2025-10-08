@@ -1,3 +1,5 @@
+import { group_status } from "@repo/database";
+
 export interface CreateGroupSessionDTO {
   productId: string;
   factoryId: string;
@@ -13,6 +15,7 @@ export interface UpdateGroupSessionDTO {
   endTime?: Date;
   groupPrice?: number;
   targetMoq?: number;
+  status?: group_status;
   estimatedCompletionDate?: Date | null;
 }
 

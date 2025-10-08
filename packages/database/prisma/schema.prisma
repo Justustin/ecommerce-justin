@@ -126,6 +126,9 @@ model factories {
   verified_by                        String?                      @db.Uuid
   created_at                         DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                         DateTime                     @default(now()) @db.Timestamptz(6)
+  bank_name                          String?                      @db.VarChar(100)
+  bank_account_number                String?                      @db.VarChar(50)
+  bank_account_name                  String?                      @db.VarChar(255)
   agent_offices                      agent_offices?               @relation(fields: [office_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users_factories_owner_idTousers    users                        @relation("factories_owner_idTousers", fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users_factories_verified_byTousers users?                       @relation("factories_verified_byTousers", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -191,6 +194,7 @@ model factory_settlements {
   notes                 String?
   created_at            DateTime               @default(now()) @db.Timestamptz(6)
   updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  total_gateway_fees    Decimal                @default(0.00) @db.Decimal(15, 2)
   users                 users?                 @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factories             factories              @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   platform_commissions  platform_commissions[]
@@ -689,6 +693,7 @@ model settlement_items {
   net_amount          Decimal             @db.Decimal(15, 2)
   order_completed_at  DateTime?           @db.Timestamptz(6)
   included_at         DateTime            @default(now()) @db.Timestamptz(6)
+  gateway_fee         Decimal             @default(0.00) @db.Decimal(15, 2)
   orders              orders              @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payments            payments?           @relation(fields: [payment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factory_settlements factory_settlements @relation(fields: [settlement_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -771,7 +776,7 @@ model spatial_ref_sys {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model transaction_ledger {
   id                  String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  transaction_code    String               @unique @db.VarChar(20)
+  transaction_code    String               @unique @db.VarChar(50)
   transaction_type    transaction_type
   factory_id          String?              @db.Uuid
   payment_id          String?              @db.Uuid
@@ -843,6 +848,7 @@ model users {
   notifications                          notifications[]
   office_staff                           office_staff?
   orders                                 orders[]
+  otps                                   otps[]
   payments                               payments[]
   product_reviews                        product_reviews[]
   refunds_refunds_approved_byTousers     refunds[]             @relation("refunds_approved_byTousers")
@@ -856,6 +862,32 @@ model users {
   @@index([referral_code], map: "idx_users_referral")
   @@index([role], map: "idx_users_role")
   @@index([status], map: "idx_users_status")
+}
+
+model webhook_events {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  event_id     String    @unique @db.VarChar(255)
+  event_type   String    @db.VarChar(100)
+  payload      Json
+  processed    Boolean?  @default(false)
+  processed_at DateTime? @db.Timestamptz(6)
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([event_id], map: "idx_webhook_events_id")
+  @@index([processed, created_at], map: "idx_webhook_events_processed")
+}
+
+model otps {
+  id          Int      @id @default(autoincrement())
+  phoneNumber String   @unique @db.VarChar(20)
+  otp         String   @db.VarChar(10)
+  attempts    Int      @default(0)
+  expiresAt   DateTime @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  userId      String   @db.Uuid
+  users       users    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_otps_user")
+
+  @@index([userId], map: "idx_otps_userid")
 }
 
 enum courier_service {
@@ -1025,6 +1057,7 @@ enum staff_status {
 
 enum transaction_type {
   payment_received
+  escrow_released
   refund_issued
   commission_earned
   settlement_paid

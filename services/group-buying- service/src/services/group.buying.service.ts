@@ -292,76 +292,93 @@ export class GroupBuyingService {
   }
 
   async processExpiredSessions() {
-    const expiredSessions = await this.repository.findExpiredSessions();
-    const results: Array<
-      | { sessionId: string; sessionCode: string; action: 'confirmed'; participants: number }
-      | { sessionId: string; sessionCode: string; action: 'failed'; participants: number; targetMoq: number }
-    > = [];
+  const expiredSessions = await this.repository.findExpiredSessions();
+  const results: Array<
+    { sessionId: string; sessionCode: string; action: 'confirmed'; participants: number; ordersCreated?: number }
+    | { sessionId: string; sessionCode: string; action: 'failed'; participants: number; targetMoq: number }
+  > = [];
 
-    for (const session of expiredSessions) {
-      const stats = await this.repository.getParticipantStats(session.id);
+  for (const session of expiredSessions) {
+    const stats = await this.repository.getParticipantStats(session.id);
+    
+    if (stats.participantCount >= session.target_moq) {
+      // Mark session as confirmed
+      await this.repository.markMoqReached(session.id);
+
+      // Get full session data with participants
+      const fullSession = await this.repository.findById(session.id);
       
-      if (stats.participantCount >= session.target_moq) {
-        await this.repository.markMoqReached(session.id);
+      if (!fullSession) continue;
 
-          // TODO: Create orders and calculate shipping
-  // await orderService.createFromSession(session.id);
-  // await shippingService.calculateAndCharge(session.id);
+      // Create bulk orders via order-service
+      try {
+        const orderServiceUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
+        
+        const response = await fetch(`${orderServiceUrl}/api/orders/bulk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupSessionId: session.id,
+            participants: fullSession.group_participants.map(p => ({
+              userId: p.user_id,
+              participantId: p.id,
+              productId: fullSession.product_id,
+              variantId: p.variant_id || undefined,
+              quantity: p.quantity,
+              unitPrice: Number(p.unit_price)
+            }))
+          })
+        });
 
+        if (!response.ok) {
+          console.error(`Failed to create orders for session ${session.session_code}`);
+        } else {
+          const orderResult = await response.json();
+          console.log(`Created ${orderResult.ordersCreated} orders for session ${session.session_code}`);
+        }
+
+        // TODO: Calculate and charge shipping
+        // await shippingService.calculateAndCharge(session.id);
+
+        // TODO: Notify participants - session confirmed
+        // TODO: Notify factory - start production
+
+        results.push({
+          sessionId: session.id,
+          sessionCode: session.session_code,
+          action: 'confirmed',
+          participants: stats.participantCount,
+          ordersCreated: fullSession.group_participants.length
+        });
+      } catch (error) {
+        console.error(`Error creating orders for session ${session.session_code}:`, error);
         results.push({
           sessionId: session.id,
           sessionCode: session.session_code,
           action: 'confirmed',
           participants: stats.participantCount
         });
-      } else {
-        await this.repository.markFailed(session.id);
-
-              
-      // TODO: Notify participants - session failed
-      // await notificationService.sendBulk({
-      //   type: 'GROUP_FAILED',
-      //   recipients: session.group_participants.map(p => p.user_id),
-      //   data: {
-      //     sessionCode: session.session_code,
-      //     productName: session.products.product_name,
-      //     participantCount: stats.participantCount,
-      //     targetMoq: session.target_moq,
-      //     refundAmount: 'Processing refund'
-      //   },
-      //   channels: ['email', 'push']
-      // });
-      
-      // TODO: Notify factory - session didn't reach MOQ
-      // await notificationService.send({
-      //   type: 'SESSION_FAILED',
-      //   recipientId: session.factories.owner_id,
-      //   data: {
-      //     sessionCode: session.session_code,
-      //     productName: session.products.product_name,
-      //     participantCount: stats.participantCount,
-      //     targetMoq: session.target_moq
-      //   },
-      //   channels: ['email']
-      // });
-      
-      // TODO: Trigger refunds
-      // await paymentService.refundSession({
-      //   sessionId: session.id,
-      //   participants: session.group_participants
-      // });
-        results.push({
-          sessionId: session.id,
-          sessionCode: session.session_code,
-          action: 'failed',
-          participants: stats.participantCount,
-          targetMoq: session.target_moq
-        });
       }
-    }
+    } else {
+      // Session failed - didn't reach MOQ
+      await this.repository.markFailed(session.id);
 
-    return results;
+      // TODO: Notify participants - refund coming
+      // TODO: Notify factory - session failed
+      // TODO: Trigger refunds via payment-service
+
+      results.push({
+        sessionId: session.id,
+        sessionCode: session.session_code,
+        action: 'failed',
+        participants: stats.participantCount,
+        targetMoq: session.target_moq
+      });
+    }
   }
+
+  return results;
+}
 
   private calculateTimeRemaining(endTime: Date): {
     hours: number;

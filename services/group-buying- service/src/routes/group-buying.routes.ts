@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { body } from 'express-validator';
+import { body, param } from 'express-validator';
 import { GroupBuyingController } from '../controllers/group-buying.controller';
+import { group_status } from '@repo/database';
 
 const router = Router();
 const controller = new GroupBuyingController();
@@ -35,7 +36,7 @@ const controller = new GroupBuyingController();
  *                 maxLength: 20
  *               targetMoq:
  *                 type: integer
- *                 minimum: 1
+ *                 minimum: 2
  *               groupPrice:
  *                 type: number
  *                 minimum: 0.01
@@ -44,21 +45,42 @@ const controller = new GroupBuyingController();
  *                 format: date-time
  *               estimatedCompletionDate:
  *                 type: string
- *                 format: date
+ *                 format: date-time
+ *                 nullable: true
+ *             example:
+ *               productId: "550e8400-e29b-41d4-a716-446655440000"
+ *               factoryId: "550e8400-e29b-41d4-a716-446655440001"
+ *               sessionCode: "GROUP2025"
+ *               targetMoq: 50
+ *               groupPrice: 100.50
+ *               endTime: "2025-10-07T19:00:00.000Z"
+ *               estimatedCompletionDate: "2025-10-15T00:00:00.000Z"
  *     responses:
  *       201:
  *         description: Session created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   $ref: '#/components/schemas/GroupBuyingSession'
+ *       400:
+ *         description: Bad request (e.g., invalid data)
  */
 router.post(
   '/',
   [
+    param('id').optional().isUUID(), // Not used here but included for consistency
     body('productId').isUUID().withMessage('Invalid product ID'),
     body('factoryId').isUUID().withMessage('Invalid factory ID'),
-    body('targetMoq').isInt({ min: 1 }).withMessage('Target MOQ must be at least 1'),
+    body('targetMoq').isInt({ min: 2 }).withMessage('Target MOQ must be at least 2'), // Updated to match service
     body('groupPrice').isFloat({ min: 0.01 }).withMessage('Group price must be greater than 0'),
     body('endTime').isISO8601().withMessage('Invalid end time format'),
-    body('sessionCode').optional().isLength({ min: 1, max: 20 }),
-    body('estimatedCompletionDate').optional().isISO8601(),
+    body('sessionCode').optional().isLength({ min: 1, max: 20 }).withMessage('Session code must be 1-20 characters'),
+    body('estimatedCompletionDate').optional().isISO8601().withMessage('Invalid estimated completion date format'),
   ],
   controller.createSession
 );
@@ -107,6 +129,23 @@ router.post(
  *     responses:
  *       200:
  *         description: List of sessions with pagination
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/GroupBuyingSession'
+ *                 page:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *                 total:
+ *                   type: integer
+ *       400:
+ *         description: Bad request (e.g., invalid query parameters)
  */
 router.get('/', controller.listSessions);
 
@@ -126,10 +165,21 @@ router.get('/', controller.listSessions);
  *     responses:
  *       200:
  *         description: Session details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GroupBuyingSession'
  *       404:
  *         description: Session not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
  */
-router.get('/:id', controller.getSessionById);
+router.get('/:id', [param('id').isUUID()], controller.getSessionById);
 
 /**
  * @swagger
@@ -146,8 +196,19 @@ router.get('/:id', controller.getSessionById);
  *     responses:
  *       200:
  *         description: Session details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GroupBuyingSession'
  *       404:
  *         description: Session not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
  */
 router.get('/code/:code', controller.getSessionByCode);
 
@@ -165,6 +226,7 @@ router.get('/code/:code', controller.getSessionByCode);
  *           type: string
  *           format: uuid
  *     requestBody:
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
@@ -175,22 +237,54 @@ router.get('/code/:code', controller.getSessionByCode);
  *                 format: date-time
  *               groupPrice:
  *                 type: number
+ *                 minimum: 0.01
+ *               status:
+ *                 type: string
+ *                 enum: [forming, active, moq_reached, success, failed, cancelled]
  *               targetMoq:
  *                 type: integer
+ *                 minimum: 2
  *               estimatedCompletionDate:
  *                 type: string
- *                 format: date
+ *                 format: date-time
+ *                 nullable: true
+ *             example:
+ *               endTime: "2025-10-07T19:00:00.000Z"
+ *               groupPrice: 100000
+ *               status: "active"
+ *               targetMoq: 120
+ *               estimatedCompletionDate: "2025-10-15T00:00:00.000Z"
  *     responses:
  *       200:
  *         description: Session updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   $ref: '#/components/schemas/GroupBuyingSession'
+ *       400:
+ *         description: Bad request (e.g., invalid data, past endTime, or session not in forming status)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
  */
 router.patch(
   '/:id',
   [
-    body('endTime').optional().isISO8601(),
-    body('groupPrice').optional().isFloat({ min: 0.01 }),
-    body('targetMoq').optional().isInt({ min: 1 }),
-    body('estimatedCompletionDate').optional().isISO8601(),
+    param('id').isUUID(),
+    body('endTime').optional().isISO8601().withMessage('Invalid end time format'),
+    body('groupPrice').optional().isFloat({ min: 0.01 }).withMessage('Group price must be greater than 0'),
+    body('targetMoq').optional().isInt({ min: 2 }).withMessage('Target MOQ must be at least 2'), // Updated to match service
+    body('estimatedCompletionDate').optional().isISO8601().withMessage('Invalid estimated completion date format'),
+    body('status').optional().isIn(Object.values(group_status)).withMessage('Invalid status value'),
   ],
   controller.updateSession
 );
@@ -235,13 +329,31 @@ router.patch(
  *               totalPrice:
  *                 type: number
  *                 minimum: 0.01
+ *             example:
+ *               userId: "550e8400-e29b-41d4-a716-446655440002"
+ *               quantity: 5
+ *               variantId: "550e8400-e29b-41d4-a716-446655440003"
+ *               unitPrice: 100.50
+ *               totalPrice: 502.50
  *     responses:
  *       201:
  *         description: Successfully joined session
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   $ref: '#/components/schemas/Participant'
+ *       400:
+ *         description: Bad request (e.g., invalid data)
  */
 router.post(
   '/:id/join',
   [
+    param('id').isUUID(),
     body('userId').isUUID().withMessage('Invalid user ID'),
     body('quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
     body('unitPrice').isFloat({ min: 0.01 }).withMessage('Unit price must be greater than 0'),
@@ -276,13 +388,25 @@ router.post(
  *               userId:
  *                 type: string
  *                 format: uuid
+ *             example:
+ *               userId: "550e8400-e29b-41d4-a716-446655440002"
  *     responses:
  *       200:
  *         description: Successfully left session
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Bad request (e.g., invalid user ID)
  */
 router.delete(
   '/:id/leave',
   [
+    param('id').isUUID(),
     body('userId').isUUID().withMessage('Invalid user ID'),
   ],
   controller.leaveSession
@@ -304,8 +428,16 @@ router.delete(
  *     responses:
  *       200:
  *         description: List of participants
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Participant'
+ *       404:
+ *         description: Session not found
  */
-router.get('/:id/participants', controller.getParticipants);
+router.get('/:id/participants', [param('id').isUUID()], controller.getParticipants);
 
 /**
  * @swagger
@@ -323,8 +455,21 @@ router.get('/:id/participants', controller.getParticipants);
  *     responses:
  *       200:
  *         description: Session statistics including MOQ progress
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalParticipants:
+ *                   type: integer
+ *                 totalQuantity:
+ *                   type: integer
+ *                 moqProgress:
+ *                   type: number
+ *       404:
+ *         description: Session not found
  */
-router.get('/:id/stats', controller.getSessionStats);
+router.get('/:id/stats', [param('id').isUUID()], controller.getSessionStats);
 
 /**
  * @swagger
@@ -351,13 +496,25 @@ router.get('/:id/stats', controller.getSessionStats);
  *               factoryOwnerId:
  *                 type: string
  *                 format: uuid
+ *             example:
+ *               factoryOwnerId: "550e8400-e29b-41d4-a716-446655440004"
  *     responses:
  *       200:
  *         description: Production started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Bad request (e.g., invalid factory owner ID)
  */
 router.post(
   '/:id/start-production',
   [
+    param('id').isUUID(),
     body('factoryOwnerId').isUUID().withMessage('Invalid factory owner ID'),
   ],
   controller.startProduction
@@ -388,13 +545,25 @@ router.post(
  *               factoryOwnerId:
  *                 type: string
  *                 format: uuid
+ *             example:
+ *               factoryOwnerId: "550e8400-e29b-41d4-a716-446655440004"
  *     responses:
  *       200:
  *         description: Production completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Bad request (e.g., invalid factory owner ID)
  */
 router.post(
   '/:id/complete-production',
   [
+    param('id').isUUID(),
     body('factoryOwnerId').isUUID().withMessage('Invalid factory owner ID'),
   ],
   controller.completeProduction
@@ -414,6 +583,7 @@ router.post(
  *           type: string
  *           format: uuid
  *     requestBody:
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
@@ -421,14 +591,26 @@ router.post(
  *             properties:
  *               reason:
  *                 type: string
+ *             example:
+ *               reason: "Insufficient participants"
  *     responses:
  *       200:
  *         description: Session cancelled
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Bad request
  */
 router.post(
   '/:id/cancel',
   [
-    body('reason').optional().isString(),
+    param('id').isUUID(),
+    body('reason').optional().isString().withMessage('Reason must be a string'),
   ],
   controller.cancelSession
 );
@@ -442,6 +624,15 @@ router.post(
  *     responses:
  *       200:
  *         description: Expired sessions processed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       500:
+ *         description: Internal server error
  */
 router.post('/process-expired', controller.processExpired);
 
@@ -461,7 +652,73 @@ router.post('/process-expired', controller.processExpired);
  *     responses:
  *       200:
  *         description: Session deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: Session not found
  */
-router.delete('/:id', controller.deleteSession);
+router.delete('/:id', [param('id').isUUID()], controller.deleteSession);
 
 export default router;
+
+// Placeholder for schemas (to be defined in components section of OpenAPI spec)
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     GroupBuyingSession:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           format: uuid
+ *         productId:
+ *           type: string
+ *           format: uuid
+ *         factoryId:
+ *           type: string
+ *           format: uuid
+ *         sessionCode:
+ *           type: string
+ *         targetMoq:
+ *           type: integer
+ *         groupPrice:
+ *           type: number
+ *         endTime:
+ *           type: string
+ *           format: date-time
+ *         estimatedCompletionDate:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *         status:
+ *           type: string
+ *           enum: [forming, active, moq_reached, success, failed, cancelled]
+ *     Participant:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           format: uuid
+ *         userId:
+ *           type: string
+ *           format: uuid
+ *         sessionId:
+ *           type: string
+ *           format: uuid
+ *         quantity:
+ *           type: integer
+ *         unitPrice:
+ *           type: number
+ *         totalPrice:
+ *           type: number
+ *         variantId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ */
