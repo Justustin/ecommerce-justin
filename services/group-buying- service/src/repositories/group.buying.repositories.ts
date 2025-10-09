@@ -465,17 +465,29 @@ export class GroupBuyingRepository {
   async findExpiredSessions() {
     return this.prisma.group_buying_sessions.findMany({
       where: {
-        status: {
-          in: ['forming', 'active']
-        },
         end_time: {
-          lt: new Date()
+          lte: new Date()
+        },
+        status: {
+          in: ['forming', 'active', 'moq_reached'] // Only get unprocessed sessions
         }
       },
       include: {
-        _count: {
+        group_participants: {
+          where: {
+            order_id: null // Only participants without orders
+          }
+        },
+        factories: {
           select: {
-            group_participants: true
+            id: true,
+            owner_id: true
+          }
+        },
+        products: {
+          select: {
+            id: true,
+            name: true
           }
         }
       }
@@ -519,4 +531,14 @@ export class GroupBuyingRepository {
     });
     return count > 0;
   }
+
+  async markOrdersCreated(sessionId: string) {
+  return this.prisma.group_buying_sessions.update({
+    where: { id: sessionId },
+    data: {
+      status: 'orders_created', // New status to prevent reprocessing
+      updated_at: new Date()
+    }
+  });
+}
 }

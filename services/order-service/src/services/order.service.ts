@@ -73,34 +73,47 @@ export class OrderService {
     const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL
 
     const payments = await Promise.all(
-        orders.map(async (order) => {
-            const totalAmount = order.items.reduce((sum: number, item: any) => sum + item.subtotal, 0);
-            const paymentData: CreatePaymentDTO = {
-                userId: data.userId,
-                orderId: order.id,
-                amount: totalAmount,
-                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                isEscrow: !!order.group_session_id // Set isEscrow for group buying orders
-            };
-            try {
-                console.log(`Calling PaymentService for order ${order.id} with amount ${totalAmount}`);
-                const response = await axios.post(`${this.paymentServiceUrl}/api/payments`, paymentData, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        // Add API key if required
-                        // 'Authorization': `Bearer ${process.env.PAYMENT_SERVICE_API_KEY}`
-                    }
-                });
-                return response.data; // Expected: { payment, paymentUrl, invoiceId }
-            } catch (error: any) {
-                console.error(`Failed to create payment for order ${order.id}:`, error.message);
-                throw new Error(`Payment creation failed: ${error.response?.data?.message || error.message}`);
-            }
-        })
-    );
+    orders.map(async (order: any) => {
+      // Validate order_items exists (from repository include)
+      if (!order.order_items || order.order_items.length === 0) {
+        console.error(`No order_items found for order ${order.id}`);
+        throw new Error(`Cannot create payment: No items for order ${order.id}`);
+      }
+
+      // Use pre-calculated total_amount from repository (includes discounts)
+      const totalAmount = Number(order.subtotal || 0); // Convert Decimal to number if needed
+
+      // Get factory_id from first order_item (all share the same factory)
+      const factoryId = order.order_items[0].factory_id;
+
+      const paymentData: CreatePaymentDTO = {
+        orderId: order.id,
+        userId: data.userId,
+        amount: totalAmount,
+        paymentMethod: "bank_transfer",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        isEscrow: !!order.group_session_id, // Set isEscrow for group buying orders
+      };
+
+      try {
+        console.log(`Calling PaymentService for order ${order.id} with amount ${totalAmount} and factory_id ${factoryId}`);
+        const response = await axios.post(`${paymentServiceUrl}/api/payments`, paymentData, {
+          headers: {
+            'Content-Type': 'application/json',
+            // 'Authorization': `Bearer ${process.env.PAYMENT_SERVICE_API_KEY}`
+          }
+        });
+        return response.data; // Expected: { payment, paymentUrl, invoiceId }
+      } catch (error: any) {
+        console.error(`Failed to create payment for order ${order.id}:`, error.message);
+        throw new Error(`Payment creation failed: ${error.response?.data?.message || error.message}`);
+      }
+    })
+  );
 
     return {
       success: true,
+      payments: payments,
       ordersCreated: orders.length,
       orders,
       message: factoryGroups.size > 1 

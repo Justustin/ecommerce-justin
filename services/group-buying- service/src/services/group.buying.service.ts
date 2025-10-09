@@ -1,4 +1,5 @@
 import { GroupBuyingRepository } from '../repositories/group.buying.repositories'
+import axios from "axios"
 
 import {
   CreateGroupSessionDTO,
@@ -97,18 +98,39 @@ export class GroupBuyingService {
         }
 
         const participant = await this.repository.joinSession(data)
+        let paymentResult;
+        try {
+            const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
+            
+            const paymentData = {
+              userId: data.userId,
+              groupSessionId: data.groupSessionId,
+              participantId: participant.id,
+              amount: data.totalPrice,
+              expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              isEscrow: true,
+              factoryId: session.factory_id
+            };
 
-          // TODO: Integrate with payment-service
-  // await paymentService.charge({
-  //   userId: data.userId,
-  //   amount: data.totalPrice,
-  //   type: 'group_session_join',
-  //   referenceId: participant.id
-  // });
+            const response = await axios.post(`${paymentServiceUrl}/api/payments/escrow`, paymentData, {
+              headers: { 'Content-Type': 'application/json' }
+            });
+
+            paymentResult = response.data.data;
+          } catch (error: any) {
+            // Rollback participant if payment fails
+            await this.repository.leaveSession(data.groupSessionId, data.userId);
+            throw new Error(`Payment failed: ${error.response?.data?.message || error.message}`);
+          }
 
         await this.checkMoqReached(session.id)
 
-        return participant
+        return {
+          participant,
+          payment: paymentResult.payment,
+          paymentUrl: paymentResult.paymentUrl,
+          invoiceId: paymentResult.invoiceId
+        };
     }
     async leaveSession(sessionId: string, userId: string) {
     const session = await this.repository.findById(sessionId);
@@ -211,6 +233,18 @@ export class GroupBuyingService {
     }
 
     await this.repository.markSuccess(sessionId);
+
+    try {
+      const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
+      
+      await axios.post(`${paymentServiceUrl}/api/payments/release-escrow`, {
+        groupSessionId: sessionId
+      }, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error(`Failed to release escrow for session ${sessionId}:`, error);
+    }
       // TODO: Notify participants - ready for shipping
   // await notificationService.sendBulk({
   //   type: 'PRODUCTION_COMPLETED',
@@ -301,9 +335,12 @@ export class GroupBuyingService {
   for (const session of expiredSessions) {
     const stats = await this.repository.getParticipantStats(session.id);
     
-    if (stats.participantCount >= session.target_moq) {
-      // Mark session as confirmed
-      await this.repository.markMoqReached(session.id);
+    if (session.status === 'moq_reached' || stats.participantCount >= session.target_moq) {
+      // Ensure status is marked
+      if (session.status !== 'moq_reached') {
+        await this.repository.markMoqReached(session.id);
+      }
+
 
       // Get full session data with participants
       const fullSession = await this.repository.findById(session.id);
@@ -366,6 +403,19 @@ export class GroupBuyingService {
       // TODO: Notify participants - refund coming
       // TODO: Notify factory - session failed
       // TODO: Trigger refunds via payment-service
+
+      try {
+        const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
+        
+        await axios.post(`${paymentServiceUrl}/api/payments/refund-session`, {
+          groupSessionId: session.id,
+          reason: 'Group buying session failed to reach MOQ'
+        }, {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error(`Failed to refund session ${session.session_code}:`, error);
+      }
 
       results.push({
         sessionId: session.id,

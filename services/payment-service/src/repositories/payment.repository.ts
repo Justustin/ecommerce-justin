@@ -1,5 +1,5 @@
 import { prisma } from '@repo/database';
-import { CreatePaymentDTO } from '../types';
+import { CreatePaymentDTO, CreateEscrowPaymentDTO } from '../types';
 import { CryptoUtils } from '../utils/crypto.utils';
 
 export class PaymentRepository {
@@ -10,7 +10,7 @@ export class PaymentRepository {
       data: {
         order_id: data.orderId,
         user_id: data.userId,
-        payment_method: data.paymentMethod,
+        payment_method: data.paymentMethod || 'bank_transfer',
         payment_status: 'pending',
         order_amount: data.amount,
         payment_gateway_fee: 0,
@@ -20,12 +20,39 @@ export class PaymentRepository {
         gateway_transaction_id: invoiceId,
         payment_code: paymentCode,
         payment_url: invoiceUrl,
-        is_in_escrow: false,
+        is_in_escrow: data.isEscrow || false,
         expires_at: data.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000)
       }
     });
   }
 
+async createEscrow(data: CreateEscrowPaymentDTO, invoiceUrl: string, invoiceId: string) {
+  const paymentCode = CryptoUtils.generatePaymentCode();
+
+  return prisma.payments.create({
+    data: {
+      user_id: data.userId,
+      group_session_id: data.groupSessionId,
+      participant_id: data.participantId,
+      payment_method: 'bank_transfer',
+      payment_status: 'pending',
+      order_amount: data.amount,
+      payment_gateway_fee: 0, // Changed from gateway_fee
+      total_amount: data.amount,
+      currency: 'IDR',
+      payment_gateway: 'xendit',
+      gateway_transaction_id: invoiceId,
+      payment_code: paymentCode,
+      payment_url: invoiceUrl,
+      is_in_escrow: true,
+      metadata: {
+        factoryId: data.factoryId,
+        type: 'group_buying_escrow'
+      },
+      expires_at: data.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000)
+    }
+  });
+}
   async findById(id: string) {
     return prisma.payments.findUnique({
       where: { id },
@@ -81,6 +108,18 @@ export class PaymentRepository {
     });
   }
 
+  async markRefunded(id: string, reason: string) {
+    return prisma.payments.update({
+      where: { id },
+      data: {
+        payment_status: 'refunded',
+        refund_reason: reason,
+        refunded_at: new Date(),
+        updated_at: new Date()
+      }
+    });
+  }
+
   async releaseEscrow(paymentIds: string[]) {
     return prisma.payments.updateMany({
       where: { id: { in: paymentIds } },
@@ -95,9 +134,7 @@ export class PaymentRepository {
   async findByGroupSession(groupSessionId: string) {
     return prisma.payments.findMany({
       where: {
-        orders: {
-          group_session_id: groupSessionId
-        }
+        group_session_id: groupSessionId
       },
       include: {
         orders: true,

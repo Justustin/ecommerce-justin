@@ -18,6 +18,8 @@ router.post('/release-escrow', [
   body('groupSessionId').isUUID()
 ], controller.releaseEscrow);
 
+router.post('/escrow', controller.createEscrowPayment.bind(controller));
+
 router.post('/refund-session', [
   body('groupSessionId').isUUID()
 ], controller.refundSession);

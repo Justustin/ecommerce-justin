@@ -115,6 +115,8 @@ export interface CreatePaymentDTO {
   userId: string;
   orderId: string;
   amount: number;
+  paymentMethod: string;
   expiresAt?: string;
   isEscrow?: boolean;
+  factoryId?: string;
 }

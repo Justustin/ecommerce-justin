@@ -2,12 +2,19 @@ export interface CreatePaymentDTO {
   orderId: string;
   userId: string;
   amount: number;
-  paymentMethod: 'bank_transfer' | 'ewallet_ovo' | 'ewallet_gopay' | 'ewallet_dana';
-  expiresAt?: Date;
-  metadata?: {
-    type: 'direct' | 'group_buying';
-    groupSessionId?: string;
-  };
+  paymentMethod?: 'bank_transfer' | 'ewallet_ovo' | 'ewallet_gopay' | 'ewallet_dana';
+  expiresAt?: Date | string;
+  isEscrow?: boolean;
+  factoryId?: string;
+}
+
+export interface CreateEscrowPaymentDTO {
+  userId: string;
+  groupSessionId: string;
+  participantId: string;
+  amount: number;
+  expiresAt?: Date | string;
+  factoryId: string;
 }
 
 export interface XenditInvoiceCallback {

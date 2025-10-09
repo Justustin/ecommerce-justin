@@ -251,6 +251,7 @@ model group_buying_sessions {
   products                  products             @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   group_participants        group_participants[]
   orders                    orders[]
+  payments                  payments[]
   pickup_tasks              pickup_tasks[]
 
   @@index([session_code], map: "idx_group_sessions_code")
@@ -274,6 +275,7 @@ model group_participants {
   orders                orders?               @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users                 users                 @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   product_variants      product_variants?     @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payments              payments[]
 
   @@unique([group_session_id, user_id])
   @@index([order_id], map: "idx_group_participants_order")
@@ -432,33 +434,38 @@ model orders {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model payments {
-  id                     String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  order_id               String               @db.Uuid
-  user_id                String               @db.Uuid
+  id                     String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  order_id               String?                @db.Uuid
+  user_id                String                 @db.Uuid
   payment_method         payment_method
-  payment_status         payment_status       @default(pending)
-  order_amount           Decimal              @db.Decimal(15, 2)
-  payment_gateway_fee    Decimal?             @default(0.00) @db.Decimal(15, 2)
-  total_amount           Decimal              @db.Decimal(15, 2)
-  currency               String?              @default("IDR") @db.VarChar(3)
-  payment_gateway        String?              @db.VarChar(50)
-  gateway_transaction_id String?              @unique @db.VarChar(255)
+  payment_status         payment_status         @default(pending)
+  order_amount           Decimal                @db.Decimal(15, 2)
+  payment_gateway_fee    Decimal?               @default(0.00) @db.Decimal(15, 2)
+  total_amount           Decimal                @db.Decimal(15, 2)
+  currency               String?                @default("IDR") @db.VarChar(3)
+  payment_gateway        String?                @db.VarChar(50)
+  gateway_transaction_id String?                @unique @db.VarChar(255)
   gateway_response       Json?
-  payment_code           String?              @db.VarChar(100)
-  va_number              String?              @db.VarChar(100)
+  payment_code           String?                @db.VarChar(100)
+  va_number              String?                @db.VarChar(100)
   payment_url            String?
   qr_code_url            String?
-  is_in_escrow           Boolean?             @default(false)
-  escrow_released_at     DateTime?            @db.Timestamptz(6)
-  refund_amount          Decimal?             @default(0.00) @db.Decimal(15, 2)
+  is_in_escrow           Boolean?               @default(false)
+  escrow_released_at     DateTime?              @db.Timestamptz(6)
+  refund_amount          Decimal?               @default(0.00) @db.Decimal(15, 2)
   refund_reason          String?
-  refunded_at            DateTime?            @db.Timestamptz(6)
-  expires_at             DateTime?            @db.Timestamptz(6)
-  paid_at                DateTime?            @db.Timestamptz(6)
-  created_at             DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime             @default(now()) @db.Timestamptz(6)
-  orders                 orders               @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users                  users                @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  refunded_at            DateTime?              @db.Timestamptz(6)
+  expires_at             DateTime?              @db.Timestamptz(6)
+  paid_at                DateTime?              @db.Timestamptz(6)
+  created_at             DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime               @default(now()) @db.Timestamptz(6)
+  group_session_id       String?                @db.Uuid
+  participant_id         String?                @db.Uuid
+  metadata               Json?
+  group_buying_sessions  group_buying_sessions? @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_group_session")
+  group_participants     group_participants?    @relation(fields: [participant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_participant")
+  orders                 orders?                @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                  users                  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   refunds                refunds[]
   settlement_items       settlement_items[]
   transaction_ledger     transaction_ledger[]
@@ -468,6 +475,8 @@ model payments {
   @@index([order_id], map: "idx_payments_order")
   @@index([payment_status], map: "idx_payments_status")
   @@index([user_id], map: "idx_payments_user")
+  @@index([group_session_id], map: "idx_payments_group_session")
+  @@index([participant_id], map: "idx_payments_participant")
 }
 
 model pickup_items {
@@ -908,6 +917,7 @@ enum group_status {
   success
   failed
   cancelled
+  orders_created
 }
 
 enum interaction_type {
