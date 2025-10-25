@@ -76,13 +76,10 @@ export class OrderService {
     const paymentResults = [];
     const failedOrders = [];
 
-    for (const order of orders) {
+    for (const order of orders as any[]) {
       try {
-        // Type assertion: Repository includes order_items
-        const orderWithItems = order as any;
-
         // Validate order_items exists (from repository include)
-        if (!orderWithItems.order_items || orderWithItems.order_items.length === 0) {
+        if (!order.order_items || order.order_items.length === 0) {
           console.error(`No order_items found for order ${order.id}`);
           throw new Error(`Cannot create payment: No items for order ${order.id}`);
         }
@@ -91,7 +88,7 @@ export class OrderService {
         const totalAmount = Number(order.subtotal || 0); // Convert Decimal to number if needed
 
         // Get factory_id from first order_item (all share the same factory)
-        const factoryId = orderWithItems.order_items[0].factory_id;
+        const factoryId = order.order_items[0].factory_id;
 
         const paymentData: CreatePaymentDTO = {
           orderId: order.id,
