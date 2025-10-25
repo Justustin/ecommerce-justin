@@ -23,7 +23,7 @@ $createSessionBody = @{
 } | ConvertTo-Json
 
 try {
-    $createResponse = Invoke-RestMethod -Uri "$baseUrl/api/group-buying/sessions" `
+    $createResponse = Invoke-RestMethod -Uri "$baseUrl/api/group-buying" `
         -Method Post `
         -ContentType "application/json" `
         -Body $createSessionBody `
@@ -42,10 +42,8 @@ Write-Host "Sending 5 concurrent join requests..." -ForegroundColor Yellow
 
 # Step 2: Test concurrent joins
 $joinBody = @{
-    groupSessionId = $sessionId
     userId = $userId
     quantity = 1
-    variantId = $null
     unitPrice = 100000
     totalPrice = 100000
 } | ConvertTo-Json
@@ -77,7 +75,7 @@ for ($i = 1; $i -le 5; $i++) {
                 Error = $_.Exception.Message
             }
         }
-    } -ArgumentList "$baseUrl/api/group-buying/join", $joinBody
+    } -ArgumentList "$baseUrl/api/group-buying/$sessionId/join", $joinBody
 }
 
 # Wait for all jobs to complete

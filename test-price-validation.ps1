@@ -13,16 +13,14 @@ Write-Host "Test 1: Submitting INCORRECT price (should fail)" -ForegroundColor Y
 Write-Host "------------------------------------------------" -ForegroundColor Yellow
 
 $fakePriceBody = @{
-    groupSessionId = $sessionId
     userId = "hacker-user-" + (Get-Random -Maximum 10000)
     quantity = 1
-    variantId = $null
     unitPrice = 1  # Fake low price
     totalPrice = 1
 } | ConvertTo-Json
 
 try {
-    $response = Invoke-RestMethod -Uri "$baseUrl/api/group-buying/join" `
+    $response = Invoke-RestMethod -Uri "$baseUrl/api/group-buying/$sessionId/join" `
         -Method Post `
         -ContentType "application/json" `
         -Body $fakePriceBody `
@@ -47,16 +45,14 @@ Write-Host "Test 2: Submitting CORRECT price (should succeed)" -ForegroundColor 
 Write-Host "------------------------------------------------" -ForegroundColor Yellow
 
 $correctPriceBody = @{
-    groupSessionId = $sessionId
     userId = "legit-user-" + (Get-Random -Maximum 10000)
     quantity = 1
-    variantId = $null
     unitPrice = $correctPrice
     totalPrice = $correctPrice
 } | ConvertTo-Json
 
 try {
-    $response = Invoke-RestMethod -Uri "$baseUrl/api/group-buying/join" `
+    $response = Invoke-RestMethod -Uri "$baseUrl/api/group-buying/$sessionId/join" `
         -Method Post `
         -ContentType "application/json" `
         -Body $correctPriceBody `
@@ -76,7 +72,6 @@ Write-Host "Test 3: Submitting INCORRECT total (correct unit price)" -Foreground
 Write-Host "-------------------------------------------------------" -ForegroundColor Yellow
 
 $wrongTotalBody = @{
-    groupSessionId = $sessionId
     userId = "hacker-user-2-" + (Get-Random -Maximum 10000)
     quantity = 2
     unitPrice = $correctPrice
@@ -84,7 +79,7 @@ $wrongTotalBody = @{
 } | ConvertTo-Json
 
 try {
-    $response = Invoke-RestMethod -Uri "$baseUrl/api/group-buying/join" `
+    $response = Invoke-RestMethod -Uri "$baseUrl/api/group-buying/$sessionId/join" `
         -Method Post `
         -ContentType "application/json" `
         -Body $wrongTotalBody `

@@ -1,7 +1,7 @@
 # Test Webhook Idempotency
 # This tests that duplicate webhooks are not processed twice
 
-Write-Host "🧪 Testing Webhook Idempotency" -ForegroundColor Cyan
+Write-Host "Testing Webhook Idempotency" -ForegroundColor Cyan
 Write-Host "===============================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -34,45 +34,45 @@ $headers = @{
 
 Write-Host "First webhook call..." -ForegroundColor Yellow
 try {
-    $response1 = Invoke-RestMethod -Uri "$baseUrl/api/webhooks/xendit" `
+    $response1 = Invoke-RestMethod -Uri "$baseUrl/api/webhooks/xendit/invoice" `
         -Method Post `
         -Headers $headers `
         -Body $webhookBody `
         -ErrorAction Stop
 
-    Write-Host "✓ First call succeeded" -ForegroundColor Green
+    Write-Host "[OK] First call succeeded" -ForegroundColor Green
     Write-Host "Response: $($response1 | ConvertTo-Json)" -ForegroundColor Gray
 }
 catch {
-    Write-Host "✗ First call failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[FAIL] First call failed: $($_.Exception.Message)" -ForegroundColor Red
 }
 
 Write-Host ""
 Write-Host "Second webhook call (duplicate)..." -ForegroundColor Yellow
 
 try {
-    $response2 = Invoke-RestMethod -Uri "$baseUrl/api/webhooks/xendit" `
+    $response2 = Invoke-RestMethod -Uri "$baseUrl/api/webhooks/xendit/invoice" `
         -Method Post `
         -Headers $headers `
         -Body $webhookBody `
         -ErrorAction Stop
 
     if ($response2.message -like "*Already processed*") {
-        Write-Host "✅ PASS: Idempotency working!" -ForegroundColor Green
+        Write-Host "[PASS] Idempotency working!" -ForegroundColor Green
         Write-Host "Webhook was correctly identified as duplicate" -ForegroundColor Green
         Write-Host "Response: $($response2 | ConvertTo-Json)" -ForegroundColor Gray
     }
     else {
-        Write-Host "⚠️ WARNING: Webhook processed again!" -ForegroundColor Yellow
+        Write-Host "[WARN] WARNING: Webhook processed again!" -ForegroundColor Yellow
         Write-Host "Response: $($response2 | ConvertTo-Json)" -ForegroundColor Gray
     }
 }
 catch {
-    Write-Host "✗ Second call failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[FAIL] Second call failed: $($_.Exception.Message)" -ForegroundColor Red
 }
 
 Write-Host ""
-Write-Host "💡 To verify in database:" -ForegroundColor Cyan
+Write-Host "To verify in database:" -ForegroundColor Cyan
 Write-Host "SELECT event_id, processed, created_at FROM webhook_events" -ForegroundColor Gray
 Write-Host "WHERE event_id = 'your-webhook-id';" -ForegroundColor Gray
 Write-Host ""

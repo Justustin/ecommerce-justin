@@ -1,7 +1,7 @@
 # Test Order Creation with Payment
 # Tests the order service and payment integration
 
-Write-Host "🧪 Testing Order Creation Flow" -ForegroundColor Cyan
+Write-Host "Testing Order Creation Flow" -ForegroundColor Cyan
 Write-Host "===============================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -15,12 +15,10 @@ $orderBody = @{
     items = @(
         @{
             productId = "prod-1"
-            variantId = $null
             quantity = 2
         },
         @{
             productId = "prod-2"
-            variantId = $null
             quantity = 1
         }
     )
@@ -42,7 +40,7 @@ try {
         -Body $orderBody `
         -ErrorAction Stop
 
-    Write-Host "✅ Order created successfully!" -ForegroundColor Green
+    Write-Host "[OK] Order created successfully!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Orders Created: $($response.ordersCreated)" -ForegroundColor Gray
     Write-Host "Message: $($response.message)" -ForegroundColor Gray
@@ -59,7 +57,7 @@ try {
     }
 
     if ($response.failedPayments) {
-        Write-Host "⚠️ Some payments failed:" -ForegroundColor Yellow
+        Write-Host "[WARN] Some payments failed:" -ForegroundColor Yellow
         foreach ($failed in $response.failedPayments) {
             Write-Host "  Order: $($failed.orderNumber)" -ForegroundColor Red
             Write-Host "  Error: $($failed.error)" -ForegroundColor Red
@@ -67,10 +65,10 @@ try {
         }
     }
 
-    Write-Host "✅ Test completed!" -ForegroundColor Green
+    Write-Host "[PASS] Test completed!" -ForegroundColor Green
 }
 catch {
-    Write-Host "❌ Order creation failed" -ForegroundColor Red
+    Write-Host "[FAIL] Order creation failed" -ForegroundColor Red
 
     if ($_.ErrorDetails.Message) {
         $errorMessage = $_.ErrorDetails.Message | ConvertFrom-Json
