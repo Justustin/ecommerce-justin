@@ -1,7 +1,7 @@
 # Test Race Condition Protection
 # This tests that users cannot join the same session multiple times
 
-Write-Host "🧪 Testing Race Condition Protection" -ForegroundColor Cyan
+Write-Host "Testing Race Condition Protection" -ForegroundColor Cyan
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -30,10 +30,10 @@ try {
         -ErrorAction Stop
 
     $sessionId = $createResponse.data.id
-    Write-Host "✓ Session created: $sessionId" -ForegroundColor Green
+    Write-Host "[OK] Session created: $sessionId" -ForegroundColor Green
 }
 catch {
-    Write-Host "⚠ Could not create session. Using test ID instead." -ForegroundColor Yellow
+    Write-Host "[WARN] Could not create session. Using test ID instead." -ForegroundColor Yellow
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
 }
 
@@ -109,22 +109,22 @@ for ($i = 0; $i -lt $results.Count; $i++) {
 Write-Host ""
 Write-Host "Summary:" -ForegroundColor Cyan
 Write-Host "--------" -ForegroundColor Cyan
-Write-Host "✅ Successes: $successCount" -ForegroundColor Green
-Write-Host "❌ Failures: $failureCount" -ForegroundColor Red
+Write-Host "[PASS] Successes: $successCount" -ForegroundColor Green
+Write-Host "[FAIL] Failures: $failureCount" -ForegroundColor Red
 Write-Host ""
 
 # Verify the fix
 if ($successCount -eq 1 -and $failureCount -eq 4) {
-    Write-Host "🎉 PASS: Race condition protection working!" -ForegroundColor Green
+    Write-Host "*** PASS: Race condition protection working!" -ForegroundColor Green
     Write-Host "Only 1 join succeeded, 4 were correctly rejected." -ForegroundColor Green
 }
 elseif ($successCount -gt 1) {
-    Write-Host "❌ FAIL: Multiple joins succeeded! Race condition exists." -ForegroundColor Red
+    Write-Host "*** FAIL: Multiple joins succeeded! Race condition exists." -ForegroundColor Red
     Write-Host "Expected: 1 success, 4 failures" -ForegroundColor Red
     Write-Host "Got: $successCount successes, $failureCount failures" -ForegroundColor Red
 }
 else {
-    Write-Host "⚠️ WARNING: All requests failed. Check if service is running." -ForegroundColor Yellow
+    Write-Host "*** WARNING: All requests failed. Check if service is running." -ForegroundColor Yellow
 }
 
 Write-Host ""

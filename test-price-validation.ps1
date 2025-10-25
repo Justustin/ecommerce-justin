@@ -1,7 +1,7 @@
 # Test Price Validation
 # This tests that users cannot submit fake prices
 
-Write-Host "🧪 Testing Price Validation" -ForegroundColor Cyan
+Write-Host "Testing Price Validation" -ForegroundColor Cyan
 Write-Host "============================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -28,17 +28,17 @@ try {
         -Body $fakePriceBody `
         -ErrorAction Stop
 
-    Write-Host "❌ FAIL: Request succeeded when it should have failed!" -ForegroundColor Red
+    Write-Host "[FAIL] Request succeeded when it should have failed!" -ForegroundColor Red
     Write-Host "Response: $($response | ConvertTo-Json)" -ForegroundColor Red
 }
 catch {
     $errorMessage = $_.ErrorDetails.Message | ConvertFrom-Json
     if ($errorMessage.error -like "*Invalid unit price*") {
-        Write-Host "✅ PASS: Price validation working!" -ForegroundColor Green
+        Write-Host "[PASS] Price validation working!" -ForegroundColor Green
         Write-Host "Error: $($errorMessage.error)" -ForegroundColor Gray
     }
     else {
-        Write-Host "⚠️ UNEXPECTED ERROR: $($errorMessage.error)" -ForegroundColor Yellow
+        Write-Host "[WARN] UNEXPECTED ERROR: $($errorMessage.error)" -ForegroundColor Yellow
     }
 }
 
@@ -62,12 +62,12 @@ try {
         -Body $correctPriceBody `
         -ErrorAction Stop
 
-    Write-Host "✅ PASS: Valid price accepted!" -ForegroundColor Green
+    Write-Host "[PASS] Valid price accepted!" -ForegroundColor Green
     Write-Host "Participant ID: $($response.data.participant.id)" -ForegroundColor Gray
 }
 catch {
     $errorMessage = $_.ErrorDetails.Message | ConvertFrom-Json
-    Write-Host "⚠️ Request failed: $($errorMessage.error)" -ForegroundColor Yellow
+    Write-Host "[WARN] Request failed: $($errorMessage.error)" -ForegroundColor Yellow
     Write-Host "Note: This might be because the session doesn't exist" -ForegroundColor Gray
 }
 
@@ -90,16 +90,16 @@ try {
         -Body $wrongTotalBody `
         -ErrorAction Stop
 
-    Write-Host "❌ FAIL: Request succeeded with wrong total!" -ForegroundColor Red
+    Write-Host "[FAIL] Request succeeded with wrong total!" -ForegroundColor Red
 }
 catch {
     $errorMessage = $_.ErrorDetails.Message | ConvertFrom-Json
     if ($errorMessage.error -like "*Total price must be*") {
-        Write-Host "✅ PASS: Total price validation working!" -ForegroundColor Green
+        Write-Host "[PASS] Total price validation working!" -ForegroundColor Green
         Write-Host "Error: $($errorMessage.error)" -ForegroundColor Gray
     }
     else {
-        Write-Host "⚠️ UNEXPECTED ERROR: $($errorMessage.error)" -ForegroundColor Yellow
+        Write-Host "[WARN] UNEXPECTED ERROR: $($errorMessage.error)" -ForegroundColor Yellow
     }
 }
 
