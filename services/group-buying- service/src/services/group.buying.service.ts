@@ -1,5 +1,7 @@
 import { GroupBuyingRepository } from '../repositories/group.buying.repositories'
 import axios from "axios"
+import { retryWithBackoff } from '../utils/retry.utils'
+import { logger } from '../utils/logger.utils'
 
 import {
   CreateGroupSessionDTO,
@@ -84,24 +86,40 @@ export class GroupBuyingService {
             throw new Error('Session has expired')
         }
 
-        const hasJoined = await this.repository.hasUserJoined(session.id, data.userId)
-        if(hasJoined){
-            throw new Error('User has already joined this session')
-        }
+        // Validate quantity
         if(data.quantity < 1) {
             throw new Error('Quantity must be at least 1')
         }
 
-        const calculatedTotal = data.quantity * data.unitPrice
+        // CRITICAL FIX #1: Validate unit price matches session group price
+        if(Number(data.unitPrice) !== Number(session.group_price)) {
+            throw new Error(
+                `Invalid unit price. Expected ${session.group_price}, got ${data.unitPrice}`
+            )
+        }
+
+        // Validate total price calculation
+        const calculatedTotal = data.quantity * Number(session.group_price)
         if(data.totalPrice !== calculatedTotal) {
             throw new Error(`Total price must be ${calculatedTotal} for quantity ${data.quantity}`)
         }
 
-        const participant = await this.repository.joinSession(data)
+        // Try to create participant - database constraint will prevent duplicates
+        let participant;
+        try {
+            participant = await this.repository.joinSession(data)
+        } catch (error: any) {
+            // CRITICAL FIX #2: Handle unique constraint violation
+            if (error.code === 'P2002') {  // Prisma unique constraint error
+                throw new Error('User has already joined this session')
+            }
+            throw error
+        }
+
         let paymentResult;
         try {
             const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-            
+
             const paymentData = {
               userId: data.userId,
               groupSessionId: data.groupSessionId,
@@ -112,14 +130,48 @@ export class GroupBuyingService {
               factoryId: session.factory_id
             };
 
-            const response = await axios.post(`${paymentServiceUrl}/api/payments/escrow`, paymentData, {
-              headers: { 'Content-Type': 'application/json' }
-            });
+            // CRITICAL FIX #3: Add retry logic with exponential backoff
+            const response = await retryWithBackoff(
+              () => axios.post(`${paymentServiceUrl}/api/payments/escrow`, paymentData, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000  // 10 second timeout
+              }),
+              {
+                maxRetries: 3,
+                initialDelay: 1000
+              }
+            );
 
             paymentResult = response.data.data;
           } catch (error: any) {
-            // Rollback participant if payment fails
-            await this.repository.leaveSession(data.groupSessionId, data.userId);
+            // CRITICAL FIX #4: Proper rollback error handling with logging
+            try {
+              await this.repository.leaveSession(data.groupSessionId, data.userId);
+
+              logger.info('Participant rollback successful after payment failure', {
+                groupSessionId: data.groupSessionId,
+                userId: data.userId,
+                participantId: participant.id
+              });
+            } catch (rollbackError: any) {
+              // CRITICAL: Rollback failed - requires manual intervention
+              logger.critical('CRITICAL: Failed to rollback participant after payment failure', {
+                groupSessionId: data.groupSessionId,
+                userId: data.userId,
+                participantId: participant.id,
+                paymentError: error.message,
+                rollbackError: rollbackError.message,
+                stackTrace: rollbackError.stack
+              });
+
+              // Throw with more context for operations team
+              throw new Error(
+                `Payment failed AND rollback failed. Manual cleanup required. ` +
+                `Participant ID: ${participant.id}. ` +
+                `Original error: ${error.response?.data?.message || error.message}`
+              );
+            }
+
             throw new Error(`Payment failed: ${error.response?.data?.message || error.message}`);
           }
 
@@ -236,14 +288,27 @@ export class GroupBuyingService {
 
     try {
       const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-      
-      await axios.post(`${paymentServiceUrl}/api/payments/release-escrow`, {
-        groupSessionId: sessionId
-      }, {
-        headers: { 'Content-Type': 'application/json' }
+
+      // MAJOR FIX: Add retry logic for escrow release
+      await retryWithBackoff(
+        () => axios.post(`${paymentServiceUrl}/api/payments/release-escrow`, {
+          groupSessionId: sessionId
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000
+        }),
+        {
+          maxRetries: 3,
+          initialDelay: 1000
+        }
+      );
+
+      logger.info('Escrow released successfully', { sessionId });
+    } catch (error: any) {
+      logger.error(`Failed to release escrow for session ${sessionId}`, {
+        error: error.message,
+        sessionId
       });
-    } catch (error) {
-      console.error(`Failed to release escrow for session ${sessionId}:`, error);
     }
       // TODO: Notify participants - ready for shipping
   // await notificationService.sendBulk({
@@ -334,11 +399,19 @@ export class GroupBuyingService {
 
   for (const session of expiredSessions) {
     const stats = await this.repository.getParticipantStats(session.id);
-    
+
     if (session.status === 'moq_reached' || stats.participantCount >= session.target_moq) {
-      // Ensure status is marked
-      if (session.status !== 'moq_reached') {
-        await this.repository.markMoqReached(session.id);
+      // CRITICAL FIX #5: Make processing idempotent with atomic status update
+      // Try to claim this session for processing
+      const claimed = await this.repository.updateStatus(session.id, 'moq_reached');
+
+      // If we couldn't claim it (another process got it first), skip
+      if (!claimed) {
+        logger.info('Session already being processed by another instance', {
+          sessionId: session.id,
+          sessionCode: session.session_code
+        });
+        continue;
       }
 
 
@@ -350,29 +423,44 @@ export class GroupBuyingService {
       // Create bulk orders via order-service
       try {
         const orderServiceUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
-        
-        const response = await fetch(`${orderServiceUrl}/api/orders/bulk`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            groupSessionId: session.id,
-            participants: fullSession.group_participants.map(p => ({
-              userId: p.user_id,
-              participantId: p.id,
-              productId: fullSession.product_id,
-              variantId: p.variant_id || undefined,
-              quantity: p.quantity,
-              unitPrice: Number(p.unit_price)
-            }))
-          })
-        });
 
-        if (!response.ok) {
-          console.error(`Failed to create orders for session ${session.session_code}`);
-        } else {
-          const orderResult = await response.json();
-          console.log(`Created ${orderResult.ordersCreated} orders for session ${session.session_code}`);
-        }
+        // MAJOR FIX: Add retry logic for order creation
+        const response = await retryWithBackoff(
+          async () => {
+            const res = await fetch(`${orderServiceUrl}/api/orders/bulk`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                groupSessionId: session.id,
+                participants: fullSession.group_participants.map(p => ({
+                  userId: p.user_id,
+                  participantId: p.id,
+                  productId: fullSession.product_id,
+                  variantId: p.variant_id || undefined,
+                  quantity: p.quantity,
+                  unitPrice: Number(p.unit_price)
+                }))
+              })
+            });
+
+            if (!res.ok) {
+              const error = await res.json().catch(() => ({ message: res.statusText }));
+              throw new Error(error.message || `HTTP ${res.status}`);
+            }
+
+            return res;
+          },
+          {
+            maxRetries: 3,
+            initialDelay: 2000
+          }
+        );
+
+        const orderResult = await response.json();
+        logger.info(`Created orders for session ${session.session_code}`, {
+          sessionId: session.id,
+          ordersCreated: orderResult.ordersCreated
+        });
 
         // TODO: Calculate and charge shipping
         // await shippingService.calculateAndCharge(session.id);
@@ -387,8 +475,15 @@ export class GroupBuyingService {
           participants: stats.participantCount,
           ordersCreated: fullSession.group_participants.length
         });
-      } catch (error) {
-        console.error(`Error creating orders for session ${session.session_code}:`, error);
+      } catch (error: any) {
+        logger.error(`Error creating orders for session ${session.session_code}`, {
+          sessionId: session.id,
+          error: error.message
+        });
+
+        // Revert status on failure so it can be retried
+        await this.repository.updateStatus(session.id, 'forming');
+
         results.push({
           sessionId: session.id,
           sessionCode: session.session_code,
@@ -406,15 +501,31 @@ export class GroupBuyingService {
 
       try {
         const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
-        
-        await axios.post(`${paymentServiceUrl}/api/payments/refund-session`, {
-          groupSessionId: session.id,
-          reason: 'Group buying session failed to reach MOQ'
-        }, {
-          headers: { 'Content-Type': 'application/json' }
+
+        // MAJOR FIX: Add retry logic for refunds
+        await retryWithBackoff(
+          () => axios.post(`${paymentServiceUrl}/api/payments/refund-session`, {
+            groupSessionId: session.id,
+            reason: 'Group buying session failed to reach MOQ'
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+          }),
+          {
+            maxRetries: 3,
+            initialDelay: 2000
+          }
+        );
+
+        logger.info('Refund initiated for failed session', {
+          sessionId: session.id,
+          sessionCode: session.session_code
         });
-      } catch (error) {
-        console.error(`Failed to refund session ${session.session_code}:`, error);
+      } catch (error: any) {
+        logger.error(`Failed to refund session ${session.session_code}`, {
+          sessionId: session.id,
+          error: error.message
+        });
       }
 
       results.push({

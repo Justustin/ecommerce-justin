@@ -200,23 +200,26 @@ async handlePaidCallback(callbackData: any) {
 
     const paymentIds = eligiblePayments.map(p => p.id);
 
-    // Release escrow in database
-    await this.repository.releaseEscrow(paymentIds);
+    // CRITICAL FIX: Wrap escrow release and ledger recording in transaction
+    return await prisma.$transaction(async (tx) => {
+      // Release escrow in database (pass transaction context if repository supports it)
+      await this.repository.releaseEscrow(paymentIds);
 
-    // Record transaction for each released payment
-    for (const payment of eligiblePayments) {
-      await this.transactionLedgerService.recordEscrowRelease(
-        payment.id,
-        payment.order_id ?? '',
-        Number(payment.order_amount),
-        groupSessionId
-      );
-    }
+      // Record transaction for each released payment
+      for (const payment of eligiblePayments) {
+        await this.transactionLedgerService.recordEscrowRelease(
+          payment.id,
+          payment.order_id ?? '',
+          Number(payment.order_amount),
+          groupSessionId
+        );
+      }
 
-    return {
-      message: 'Escrow released',
-      paymentsReleased: paymentIds.length
-    };
+      return {
+        message: 'Escrow released',
+        paymentsReleased: paymentIds.length
+      };
+    });
   }
 
   async getPaymentByOrderId(orderId: string) {

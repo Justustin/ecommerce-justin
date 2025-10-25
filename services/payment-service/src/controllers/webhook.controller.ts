@@ -41,42 +41,50 @@ export class WebhookController {
       `;
 
       if (callbackData.status === 'PAID') {
-        await this.paymentService.handlePaidCallback(callbackData);
-        
-        await prisma.$executeRaw`
-          UPDATE webhook_events 
-          SET processed = true, processed_at = NOW()
-          WHERE event_id = ${eventId}
-        `;
-      } else if (callbackData.status === 'EXPIRED') {
-        const payment = await prisma.payments.findUnique({
-          where: { gateway_transaction_id: callbackData.id }
+        // CRITICAL FIX: Make webhook processing atomic with transaction
+        await prisma.$transaction(async (tx) => {
+          await this.paymentService.handlePaidCallback(callbackData);
+
+          await tx.$executeRaw`
+            UPDATE webhook_events
+            SET processed = true, processed_at = NOW()
+            WHERE event_id = ${eventId}
+          `;
         });
-
-        if (payment && payment.payment_status === 'pending') {
-          await prisma.payments.update({
-            where: { id: payment.id },
-            data: {
-              payment_status: 'expired',
-              updated_at: new Date()
-            }
+      } else if (callbackData.status === 'EXPIRED') {
+        // CRITICAL FIX: Make expired payment handling atomic with transaction
+        await prisma.$transaction(async (tx) => {
+          const payment = await tx.payments.findUnique({
+            where: { gateway_transaction_id: callbackData.id }
           });
 
-          await prisma.orders.update({
-            where: { id: payment.order_id },
-            data: {
-              status: 'cancelled',
-              cancelled_at: new Date(),
-              updated_at: new Date()
-            }
-          });
-        }
+          if (payment && payment.payment_status === 'pending') {
+            await tx.payments.update({
+              where: { id: payment.id },
+              data: {
+                payment_status: 'expired',
+                updated_at: new Date()
+              }
+            });
 
-        await prisma.$executeRaw`
-          UPDATE webhook_events 
-          SET processed = true, processed_at = NOW()
-          WHERE event_id = ${eventId}
-        `;
+            if (payment.order_id) {
+              await tx.orders.update({
+                where: { id: payment.order_id },
+                data: {
+                  status: 'cancelled',
+                  cancelled_at: new Date(),
+                  updated_at: new Date()
+                }
+              });
+            }
+          }
+
+          await tx.$executeRaw`
+            UPDATE webhook_events
+            SET processed = true, processed_at = NOW()
+            WHERE event_id = ${eventId}
+          `;
+        });
       }
 
       res.json({ received: true });

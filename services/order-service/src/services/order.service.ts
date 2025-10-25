@@ -72,51 +72,84 @@ export class OrderService {
 
     const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL
 
-    const payments = await Promise.all(
-    orders.map(async (order: any) => {
-      // Validate order_items exists (from repository include)
-      if (!order.order_items || order.order_items.length === 0) {
-        console.error(`No order_items found for order ${order.id}`);
-        throw new Error(`Cannot create payment: No items for order ${order.id}`);
-      }
+    // MAJOR FIX: Better error handling for payment creation
+    const paymentResults = [];
+    const failedOrders = [];
 
-      // Use pre-calculated total_amount from repository (includes discounts)
-      const totalAmount = Number(order.subtotal || 0); // Convert Decimal to number if needed
-
-      // Get factory_id from first order_item (all share the same factory)
-      const factoryId = order.order_items[0].factory_id;
-
-      const paymentData: CreatePaymentDTO = {
-        orderId: order.id,
-        userId: data.userId,
-        amount: totalAmount,
-        paymentMethod: "bank_transfer",
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        isEscrow: !!order.group_session_id, // Set isEscrow for group buying orders
-      };
-
+    for (const order of orders) {
       try {
+        // Validate order_items exists (from repository include)
+        if (!order.order_items || order.order_items.length === 0) {
+          console.error(`No order_items found for order ${order.id}`);
+          throw new Error(`Cannot create payment: No items for order ${order.id}`);
+        }
+
+        // Use pre-calculated total_amount from repository (includes discounts)
+        const totalAmount = Number(order.subtotal || 0); // Convert Decimal to number if needed
+
+        // Get factory_id from first order_item (all share the same factory)
+        const factoryId = order.order_items[0].factory_id;
+
+        const paymentData: CreatePaymentDTO = {
+          orderId: order.id,
+          userId: data.userId,
+          amount: totalAmount,
+          paymentMethod: "bank_transfer",
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          isEscrow: !!order.group_session_id, // Set isEscrow for group buying orders
+        };
+
         console.log(`Calling PaymentService for order ${order.id} with amount ${totalAmount} and factory_id ${factoryId}`);
+
         const response = await axios.post(`${paymentServiceUrl}/api/payments`, paymentData, {
           headers: {
             'Content-Type': 'application/json',
+            timeout: 10000  // 10 second timeout
             // 'Authorization': `Bearer ${process.env.PAYMENT_SERVICE_API_KEY}`
           }
         });
-        return response.data; // Expected: { payment, paymentUrl, invoiceId }
+
+        paymentResults.push({
+          orderId: order.id,
+          orderNumber: order.order_number,
+          ...response.data
+        });
       } catch (error: any) {
         console.error(`Failed to create payment for order ${order.id}:`, error.message);
-        throw new Error(`Payment creation failed: ${error.response?.data?.message || error.message}`);
+
+        failedOrders.push({
+          orderId: order.id,
+          orderNumber: order.order_number,
+          error: error.response?.data?.message || error.message
+        });
+
+        // Mark order as failed
+        await this.repository.updateStatus({
+          orderId: order.id,
+          newStatus: 'failed',
+          notes: `Payment creation failed: ${error.message}`
+        });
       }
-    })
-  );
+    }
+
+    // If all payments failed, throw error
+    if (failedOrders.length === orders.length) {
+      throw new Error(
+        `All payment creations failed. Orders: ${failedOrders.map(f => f.orderNumber).join(', ')}`
+      );
+    }
+
+    const payments = paymentResults;
 
     return {
       success: true,
       payments: payments,
       ordersCreated: orders.length,
       orders,
-      message: factoryGroups.size > 1 
+      failedPayments: failedOrders.length > 0 ? failedOrders : undefined,
+      message: failedOrders.length > 0
+        ? `Partial success: ${paymentResults.length}/${orders.length} payments created. ${failedOrders.length} failed.`
+        : factoryGroups.size > 1
         ? `Created ${orders.length} orders (items from ${factoryGroups.size} factories)`
         : 'Order created successfully'
     };
