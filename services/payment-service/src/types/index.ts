@@ -35,7 +35,7 @@ export interface XenditInvoiceCallback {
 
 export interface CreateRefundDTO {
   paymentId: string;
-  orderId: string;
+  orderId: string | null;  // Allow null for escrow payments without orders
   userId: string;
   reason: 'group_failed_moq' | 'order_cancelled' | 'customer_request';
   amount?: number;

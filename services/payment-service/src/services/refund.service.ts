@@ -234,7 +234,10 @@ export class RefundService {
     });
   }
 
-  private async updateOrderAfterRefund(orderId: string) {
+  private async updateOrderAfterRefund(orderId: string | null) {
+    // Only update order if orderId exists (not escrow-only payments)
+    if (!orderId) return;
+
     await prisma.orders.update({
       where: { id: orderId },
       data: {
@@ -245,12 +248,18 @@ export class RefundService {
     });
   }
 
-  private async sendRefundNotification(userId: string, orderId: string, status: 'completed' | 'failed') {
+  private async sendRefundNotification(userId: string, orderId: string | null, status: 'completed' | 'failed') {
     try {
-      const order = await prisma.orders.findUnique({
-        where: { id: orderId },
-        select: { order_number: true }
-      });
+      let orderNumber = 'N/A';
+
+      // Only fetch order if orderId exists
+      if (orderId) {
+        const order = await prisma.orders.findUnique({
+          where: { id: orderId },
+          select: { order_number: true }
+        });
+        orderNumber = order?.order_number || 'N/A';
+      }
 
       await prisma.notifications.create({
         data: {
@@ -258,9 +267,13 @@ export class RefundService {
           type: 'group_failed',
           title: status === 'completed' ? 'Refund Processed' : 'Refund Failed',
           message: status === 'completed'
-            ? `Your refund for order ${order?.order_number} has been processed.`
-            : `Refund processing failed for order ${order?.order_number}. Please contact support.`,
-          action_url: `/orders/${orderId}`,
+            ? orderId
+              ? `Your refund for order ${orderNumber} has been processed.`
+              : `Your refund for group buying session has been processed.`
+            : orderId
+              ? `Refund processing failed for order ${orderNumber}. Please contact support.`
+              : `Refund processing failed. Please contact support.`,
+          action_url: orderId ? `/orders/${orderId}` : null,
           related_id: orderId
         }
       });
