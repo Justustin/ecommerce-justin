@@ -26,14 +26,18 @@ Write-Host ""
 foreach ($service in $services) {
     $name = $service.Name
     $port = $service.Port
-    $url = "http://localhost:$port"
+    $url = "http://localhost:$port/health"
 
     try {
-        $response = Invoke-WebRequest -Uri $url -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
-        Write-Host "[OK] $name (port $port)" -ForegroundColor Green
+        $response = Invoke-RestMethod -Uri $url -TimeoutSec 2 -ErrorAction Stop
+        if ($response.status -eq "healthy") {
+            Write-Host "[OK] $name (port $port) - $($response.service)" -ForegroundColor Green
+        } else {
+            Write-Host "[OK] $name (port $port)" -ForegroundColor Green
+        }
     }
     catch {
-        Write-Host "[--] $name not running on port $port" -ForegroundColor Yellow
+        Write-Host "[--] $name not responding on port $port" -ForegroundColor Yellow
     }
 }
 
@@ -50,6 +54,9 @@ Write-Host "   Run: .\test-price-validation.ps1" -ForegroundColor Gray
 Write-Host ""
 Write-Host "3. Webhook Idempotency:" -ForegroundColor White
 Write-Host "   Run: .\test-webhook-idempotency.ps1" -ForegroundColor Gray
+Write-Host ""
+Write-Host "4. Order Creation:" -ForegroundColor White
+Write-Host "   Run: .\test-order-creation.ps1" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Full testing guide: TESTING_GUIDE.md" -ForegroundColor Cyan
 Write-Host ""
