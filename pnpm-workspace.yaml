@@ -1,4 +1,13 @@
 packages:
-  - 'packages/*'
-  - 'services/*'
-  - 'apps/*'
+  - packages/*
+  - services/*
+  - apps/*
+
+ignoredBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - '@scarf/scarf'
+  - bcrypt
+  - esbuild
+  - prisma
+  - protobufjs
