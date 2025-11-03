@@ -752,7 +752,7 @@ model shipment_tracking_events {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model shipments {
   id                       String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  pickup_task_id           String                     @db.Uuid
+  pickup_task_id           String?                    @db.Uuid
   order_id                 String                     @db.Uuid
   courier_service          courier_service
   service_type             String?                    @db.VarChar(50)
@@ -787,7 +787,7 @@ model shipments {
   updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
   shipment_tracking_events shipment_tracking_events[]
   orders                   orders                     @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  pickup_tasks             pickup_tasks               @relation(fields: [pickup_task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pickup_tasks             pickup_tasks?              @relation(fields: [pickup_task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([courier_service], map: "idx_shipments_courier")
   @@index([order_id], map: "idx_shipments_order")
