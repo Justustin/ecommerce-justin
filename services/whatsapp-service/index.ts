@@ -16,6 +16,10 @@ app.listen(PORT, () => {
   console.log(`WhatsApp service running on http://localhost:${PORT}`);
 });
 
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'whatsapp-service' });
+});
+
 // setTimeout(async () => {
 //     await sendMessage('08119883223', 'Hello!');
 // }, 5000);

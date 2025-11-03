@@ -37,6 +37,7 @@ export interface UpdateOrderStatusDTO {
     | 'refunded' 
     | 'failed';
   estimatedDeliveryDate?: Date;
+  notes: string | null;
 }
 
 export interface CreateBulkOrdersDTO {

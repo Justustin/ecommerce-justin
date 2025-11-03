@@ -73,8 +73,8 @@ export class OrderService {
     const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL
 
     // MAJOR FIX: Better error handling for payment creation
-    const paymentResults = [];
-    const failedOrders = [];
+    const paymentResults: Array<{ orderId: string; orderNumber: string; [key: string]: any }> = [];
+    const failedOrders: Array<{ orderId: string; orderNumber: string; error: any }> = [];
 
     for (const order of orders as any[]) {
       try {
