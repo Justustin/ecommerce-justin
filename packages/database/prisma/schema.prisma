@@ -247,6 +247,11 @@ model group_buying_sessions {
   estimated_completion_date DateTime?            @db.Date
   created_at                DateTime             @default(now()) @db.Timestamptz(6)
   updated_at                DateTime             @default(now()) @db.Timestamptz(6)
+  warehouse_check_at        DateTime?            @db.Timestamptz(6)
+  warehouse_has_stock       Boolean?
+  factory_notified_at       DateTime?            @db.Timestamptz(6)
+  factory_whatsapp_sent     Boolean?             @default(false)
+  grosir_units_needed       Int?
   factories                 factories            @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   products                  products             @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   group_participants        group_participants[]
@@ -594,60 +599,78 @@ model product_reviews {
 }
 
 model product_variants {
-  id                 String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  product_id         String               @db.Uuid
-  sku                String               @unique @db.VarChar(100)
-  variant_name       String               @db.VarChar(255)
-  color              String?              @db.VarChar(50)
-  size               String?              @db.VarChar(50)
-  material           String?              @db.VarChar(100)
-  price_adjustment   Decimal?             @default(0.00) @db.Decimal(15, 2)
-  stock_quantity     Int?                 @default(0)
-  weight_grams       Int?
-  image_url          String?
-  is_active          Boolean?             @default(true)
-  created_at         DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime             @default(now()) @db.Timestamptz(6)
-  group_participants group_participants[]
-  order_items        order_items[]
-  products           products             @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  product_id                 String                       @db.Uuid
+  sku                        String                       @unique @db.VarChar(100)
+  variant_name               String                       @db.VarChar(255)
+  color                      String?                      @db.VarChar(50)
+  size                       String?                      @db.VarChar(50)
+  material                   String?                      @db.VarChar(100)
+  price_adjustment           Decimal?                     @default(0.00) @db.Decimal(15, 2)
+  stock_quantity             Int?                         @default(0)
+  weight_grams               Int?
+  image_url                  String?
+  is_active                  Boolean?                     @default(true)
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  group_participants         group_participants[]
+  order_items                order_items[]
+  products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grosir_variant_allocations grosir_variant_allocations[]
 
   @@index([product_id], map: "idx_product_variants_product")
   @@index([sku], map: "idx_product_variants_sku")
 }
 
+/// Stores grosir (wholesale) variant allocations per product
+model grosir_variant_allocations {
+  id                  String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  product_id          String            @db.Uuid
+  variant_id          String?           @db.Uuid
+  allocation_quantity Int
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime          @default(now()) @db.Timestamptz(6)
+  products            products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants    product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([product_id, variant_id])
+  @@index([product_id], map: "idx_grosir_allocations_product")
+}
+
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model products {
-  id                    String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  factory_id            String                  @db.Uuid
-  category_id           String                  @db.Uuid
-  sku                   String                  @unique @db.VarChar(100)
-  name                  String                  @db.VarChar(255)
-  slug                  String                  @unique(map: "products_slug_unique") @db.VarChar(255)
-  description           String?
-  status                product_status          @default(draft)
-  primary_image_url     String?
-  base_price            Decimal                 @db.Decimal(15, 2)
-  cost_price            Decimal?                @db.Decimal(15, 2)
-  min_order_quantity    Int                     @default(50)
-  group_duration_hours  Int?                    @default(48)
-  weight_grams          Int?
-  length_cm             Decimal?                @db.Decimal(10, 2)
-  width_cm              Decimal?                @db.Decimal(10, 2)
-  height_cm             Decimal?                @db.Decimal(10, 2)
-  stock_quantity        Int?                    @default(0)
-  meta_title            String?                 @db.VarChar(255)
-  meta_description      String?
-  published_at          DateTime?               @db.Timestamptz(6)
-  created_at            DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
-  group_buying_sessions group_buying_sessions[]
-  order_items           order_items[]
-  product_images        product_images[]
-  product_reviews       product_reviews[]
-  product_variants      product_variants[]
-  categories            categories              @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  factories             factories               @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  factory_id                 String                       @db.Uuid
+  category_id                String                       @db.Uuid
+  sku                        String                       @unique @db.VarChar(100)
+  name                       String                       @db.VarChar(255)
+  slug                       String                       @unique(map: "products_slug_unique") @db.VarChar(255)
+  description                String?
+  status                     product_status               @default(draft)
+  primary_image_url          String?
+  base_price                 Decimal                      @db.Decimal(15, 2)
+  cost_price                 Decimal?                     @db.Decimal(15, 2)
+  min_order_quantity         Int                          @default(50)
+  group_duration_hours       Int?                         @default(48)
+  weight_grams               Int?
+  length_cm                  Decimal?                     @db.Decimal(10, 2)
+  width_cm                   Decimal?                     @db.Decimal(10, 2)
+  height_cm                  Decimal?                     @db.Decimal(10, 2)
+  stock_quantity             Int?                         @default(0)
+  meta_title                 String?                      @db.VarChar(255)
+  meta_description           String?
+  published_at               DateTime?                    @db.Timestamptz(6)
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  grosir_unit_size           Int?
+  group_buying_sessions      group_buying_sessions[]
+  order_items                order_items[]
+  product_images             product_images[]
+  product_reviews            product_reviews[]
+  product_variants           product_variants[]
+  grosir_variant_allocations grosir_variant_allocations[]
+  categories                 categories                   @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factories                  factories                    @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([category_id], map: "idx_products_category")
   @@index([factory_id], map: "idx_products_factory")
@@ -914,6 +937,8 @@ enum group_status {
   forming
   active
   moq_reached
+  pending_stock
+  stock_received
   success
   failed
   cancelled
