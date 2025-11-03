@@ -12,7 +12,7 @@ import { prisma } from '@repo/database';
 import axios from 'axios';
 import { shipment_status } from '@repo/database';
 
-const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://localhost:3002';
+const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3007';
 
 export class LogisticsService {
@@ -387,6 +387,10 @@ export class LogisticsService {
         year: 'numeric'
       })
     };
+
+    // TODO: Generate actual PDF or HTML label using a template library
+    // For now, return the label data
+    return labelData;
   }
 
   private mapBiteshipStatus(biteshipStatus: string): shipment_status {
@@ -451,18 +455,23 @@ export class LogisticsService {
         }
       });
 
-      await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications/send`, {
-        recipientId: userId,
-        type: status,
-        data: {
-          orderNumber: order?.order_number || '',
-          trackingNumber,
-          productName: order?.order_items[0]?.product_name || 'Product',
-          description: description || `Your order is ${status}`,
-          orderId
-        },
-        relatedId: orderId,
-        channels: ['whatsapp']
+      // Map shipment status to notification type
+      const notificationTypeMap: Record<string, string> = {
+        'picked_up': 'picked_up',
+        'in_transit': 'shipped',
+        'out_for_delivery': 'shipped',
+        'delivered': 'delivered'
+      };
+
+      const notificationType = notificationTypeMap[status] || 'shipped';
+
+      await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, {
+        userId: userId,
+        type: notificationType,
+        title: `Order ${status.replace(/_/g, ' ')}`,
+        message: description || `Your order ${order?.order_number} is ${status.replace(/_/g, ' ')}. Tracking: ${trackingNumber}`,
+        actionUrl: `/orders/${orderId}`,
+        relatedId: orderId
       });
 
       console.log(`✅ Shipment notification sent to user ${userId}`);

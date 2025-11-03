@@ -77,3 +77,6 @@ Thumbs.db
 *.tsbuildinfo
 
 #
+# WhatsApp authentication files (contain session keys and credentials)
+services/whatsapp-service/auth/*.json
+services/whatsapp-service/auth/

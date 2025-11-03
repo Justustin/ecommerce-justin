@@ -49,22 +49,35 @@ export class WalletService {
         
         return prisma.$transaction(async (tx) => {
             const wallet = await this.repository.findOrCreateWallet(data.userId, tx);
-
-            if (wallet.balance < data.amount) {
-                throw new Error('Insufficient wallet balance.');
-            }
-
             const balanceBefore = wallet.balance;
             const netAmount = data.amount - WITHDRAWAL_FEE;
 
-            // 1. Debit the wallet
-            const updatedWallet = await tx.user_wallets.update({
-                where: { user_id: data.userId },
+            // CRITICAL FIX: Atomic balance check and update to prevent race condition
+            // Use updateMany with balance check in WHERE clause
+            const updateResult = await tx.user_wallets.updateMany({
+                where: {
+                    user_id: data.userId,
+                    balance: { gte: data.amount } // Only update if sufficient balance
+                },
                 data: {
                     balance: { decrement: data.amount },
                     total_withdrawn: { increment: data.amount }
                 }
             });
+
+            // If no rows were updated, balance was insufficient
+            if (updateResult.count === 0) {
+                throw new Error('Insufficient wallet balance.');
+            }
+
+            // Get the updated wallet
+            const updatedWallet = await tx.user_wallets.findUnique({
+                where: { user_id: data.userId }
+            });
+
+            if (!updatedWallet) {
+                throw new Error('Wallet not found after update');
+            }
 
             // 2. Create the withdrawal request record
             const withdrawal = await this.repository.createWithdrawal(data, WITHDRAWAL_FEE, netAmount, tx);

@@ -5,7 +5,7 @@ import axios from 'axios';
 
 const FACTORY_SERVICE_URL = process.env.FACTORY_SERVICE_URL || 'http://localhost:3003';
 const LOGISTICS_SERVICE_URL = process.env.LOGISTICS_SERVICE_URL || 'http://localhost:3008';
-const WAREHOUSE_POSTAL_CODE = '13910';
+const WAREHOUSE_POSTAL_CODE = process.env.WAREHOUSE_POSTAL_CODE || '13910';
 
 export class WarehouseService {
     private repository: WarehouseRepository;
@@ -28,9 +28,26 @@ export class WarehouseService {
 
         if (currentStock >= quantity) {
             console.log("Sufficient stock in warehouse. No purchase order needed.");
-            // In a real system, you would reserve this stock. For now, we just log.
-            // await prisma.warehouse_inventory.update(...)
-            return { message: "Demand fulfilled from existing stock." };
+
+            // CRITICAL FIX: Actually reserve the stock to prevent overselling
+            if (!inventory) {
+                throw new Error('Inventory record not found');
+            }
+
+            await prisma.warehouse_inventory.update({
+                where: { id: inventory.id },
+                data: {
+                    available_quantity: { decrement: quantity },
+                    reserved_quantity: { increment: quantity }
+                }
+            });
+
+            console.log(`Reserved ${quantity} units from warehouse inventory`);
+            return {
+                message: "Demand fulfilled from existing stock.",
+                reserved: quantity,
+                inventoryId: inventory.id
+            };
         }
 
         // 2. If insufficient, calculate how much to order from the factory
