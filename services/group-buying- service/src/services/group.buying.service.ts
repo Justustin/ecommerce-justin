@@ -91,6 +91,49 @@ export class GroupBuyingService {
             throw new Error('Quantity must be at least 1')
         }
 
+        // GROSIR VARIANT ALLOCATION CHECK: Enforce 2x allocation limit
+        if (data.variantId) {
+            try {
+                const variantAvail = await this.getVariantAvailability(
+                    data.groupSessionId,
+                    data.variantId
+                );
+
+                if (variantAvail.isLocked) {
+                    throw new Error(
+                        `Variant is currently locked. ` +
+                        `Max ${variantAvail.maxAllowed} allowed, ` +
+                        `${variantAvail.totalOrdered} already ordered. ` +
+                        `Other variants need to catch up before you can order more of this variant.`
+                    );
+                }
+
+                if (data.quantity > variantAvail.available) {
+                    throw new Error(
+                        `Only ${variantAvail.available} units available for this variant. ` +
+                        `Already ordered: ${variantAvail.totalOrdered}/${variantAvail.maxAllowed}`
+                    );
+                }
+
+                logger.info('Variant availability check passed', {
+                    sessionId: data.groupSessionId,
+                    variantId: data.variantId,
+                    requested: data.quantity,
+                    available: variantAvail.available,
+                    totalOrdered: variantAvail.totalOrdered
+                });
+            } catch (error: any) {
+                // If allocation doesn't exist, that's okay - product might not use grosir system
+                if (!error.message.includes('not configured')) {
+                    throw error;
+                }
+                logger.info('Product does not use grosir allocation system', {
+                    sessionId: data.groupSessionId,
+                    productId: session.product_id
+                });
+            }
+        }
+
         // CRITICAL FIX #1: Validate unit price matches session group price
         if(Number(data.unitPrice) !== Number(session.group_price)) {
             throw new Error(
@@ -228,6 +271,230 @@ export class GroupBuyingService {
       timeRemaining: this.calculateTimeRemaining(session.end_time),
       status: session.status
     };
+  }
+
+  /**
+   * Get variant availability for grosir allocation system
+   * Checks how many units of a variant can still be ordered based on 2x allocation rule
+   */
+  async getVariantAvailability(sessionId: string, variantId: string | null) {
+    const session = await this.repository.findById(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    // Get variant allocation from grosir_variant_allocations table
+    const { prisma } = await import('@repo/database');
+
+    const allocation = await prisma.grosir_variant_allocations.findUnique({
+      where: {
+        product_id_variant_id: {
+          product_id: session.product_id,
+          variant_id: variantId || null
+        }
+      }
+    });
+
+    if (!allocation) {
+      throw new Error(
+        `Variant allocation not configured for this product. ` +
+        `Please contact factory to set up grosir allocations.`
+      );
+    }
+
+    // Count how many already ordered for this variant
+    const participants = await prisma.group_participants.findMany({
+      where: {
+        group_session_id: sessionId,
+        variant_id: variantId
+      }
+    });
+
+    const totalOrdered = participants.reduce((sum, p) => sum + p.quantity, 0);
+    const maxAllowed = allocation.allocation_quantity * 2; // 2x rule
+    const available = maxAllowed - totalOrdered;
+
+    return {
+      variantId,
+      allocation: allocation.allocation_quantity,
+      maxAllowed,
+      totalOrdered,
+      available,
+      isLocked: available <= 0
+    };
+  }
+
+  /**
+   * Check warehouse stock for all ordered variants
+   * Returns whether warehouse has sufficient stock or if factory needs to send more
+   */
+  async checkWarehouseStock(sessionId: string) {
+    const session = await this.repository.findById(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    const warehouseServiceUrl = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3011';
+    const { prisma } = await import('@repo/database');
+
+    try {
+      // Get all variant quantities from participants
+      const participants = await prisma.group_participants.findMany({
+        where: { group_session_id: sessionId }
+      });
+
+      // Group by variant
+      const variantDemands = participants.reduce((acc, p) => {
+        const key = p.variant_id || 'base';
+        acc[key] = (acc[key] || 0) + p.quantity;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Check warehouse for each variant
+      const stockChecks = await Promise.all(
+        Object.entries(variantDemands).map(async ([variantId, quantity]) => {
+          const response = await axios.post(
+            `${warehouseServiceUrl}/api/warehouse/check-stock`,
+            {
+              productId: session.product_id,
+              variantId: variantId === 'base' ? null : variantId,
+              quantity
+            },
+            {
+              headers: { 'Content-Type': 'application/json' },
+              timeout: 10000
+            }
+          );
+          return { variantId, ...response.data };
+        })
+      );
+
+      const allInStock = stockChecks.every(check => check.hasStock);
+      const grosirNeeded = stockChecks
+        .filter(check => !check.hasStock)
+        .reduce((sum, check) => sum + (check.grosirUnitsNeeded || 0), 0);
+
+      // Update session with warehouse check results
+      await prisma.group_buying_sessions.update({
+        where: { id: sessionId },
+        data: {
+          warehouse_check_at: new Date(),
+          warehouse_has_stock: allInStock,
+          grosir_units_needed: grosirNeeded
+        }
+      });
+
+      logger.info('Warehouse stock check completed', {
+        sessionId,
+        allInStock,
+        grosirNeeded,
+        stockChecks
+      });
+
+      return {
+        hasStock: allInStock,
+        grosirNeeded,
+        stockChecks
+      };
+    } catch (error: any) {
+      logger.error('Warehouse stock check failed', {
+        sessionId,
+        error: error.message
+      });
+      throw new Error(`Failed to check warehouse stock: ${error.message}`);
+    }
+  }
+
+  /**
+   * Notify factory via WhatsApp to send stock to warehouse
+   * Sends automated message with grosir units needed
+   */
+  async notifyFactoryForStock(sessionId: string) {
+    const session = await this.repository.findById(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    if (session.factory_whatsapp_sent) {
+      logger.info('Factory already notified via WhatsApp', { sessionId });
+      return { message: 'Factory already notified' };
+    }
+
+    const factory = session.factories;
+    if (!factory.phone_number) {
+      throw new Error(
+        `Factory phone number not configured. ` +
+        `Please add phone number for factory: ${factory.factory_name}`
+      );
+    }
+
+    const whatsappServiceUrl = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3012';
+
+    // Calculate total grosir needed
+    const totalUnits = session.grosir_units_needed || 1;
+    const grosirUnitSize = session.products.grosir_unit_size || 12;
+
+    const message = `
+🏭 *Purchase Order - ${factory.factory_name}*
+
+*Product:* ${session.products.name}
+*Session Code:* ${session.session_code}
+*Grosir Units Needed:* ${totalUnits}
+*Total Quantity:* ${totalUnits * grosirUnitSize}
+
+Please prepare and send to Laku Warehouse.
+
+*Delivery Address:*
+Laku Warehouse
+${process.env.WAREHOUSE_ADDRESS || '[Warehouse Address]'}
+
+Thank you!
+    `.trim();
+
+    try {
+      await retryWithBackoff(
+        () => axios.post(`${whatsappServiceUrl}/api/whatsapp/send`, {
+          phoneNumber: factory.phone_number,
+          message
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000
+        }),
+        {
+          maxRetries: 3,
+          initialDelay: 1000
+        }
+      );
+
+      const { prisma } = await import('@repo/database');
+      await prisma.group_buying_sessions.update({
+        where: { id: sessionId },
+        data: {
+          factory_notified_at: new Date(),
+          factory_whatsapp_sent: true
+        }
+      });
+
+      logger.info('Factory notified via WhatsApp', {
+        sessionId,
+        factoryName: factory.factory_name,
+        phoneNumber: factory.phone_number,
+        grosirNeeded: totalUnits
+      });
+
+      return {
+        message: 'Factory notified successfully',
+        phoneNumber: factory.phone_number,
+        grosirNeeded: totalUnits
+      };
+    } catch (error: any) {
+      logger.error('Failed to send WhatsApp to factory', {
+        sessionId,
+        factoryName: factory.factory_name,
+        error: error.message
+      });
+      throw new Error(`Failed to notify factory: ${error.message}`);
+    }
   }
 
   async startProduction(sessionId: string, factoryOwnerId: string) {
@@ -393,7 +660,7 @@ export class GroupBuyingService {
   async processExpiredSessions() {
   const expiredSessions = await this.repository.findExpiredSessions();
   const results: Array<
-    { sessionId: string; sessionCode: string; action: 'confirmed'; participants: number; ordersCreated?: number }
+    { sessionId: string; sessionCode: string; action: 'confirmed' | 'pending_stock'; participants: number; ordersCreated?: number; grosirNeeded?: number }
     | { sessionId: string; sessionCode: string; action: 'failed'; participants: number; targetMoq: number }
   > = [];
 
@@ -414,11 +681,54 @@ export class GroupBuyingService {
         continue;
       }
 
-
       // Get full session data with participants
       const fullSession = await this.repository.findById(session.id);
-      
+
       if (!fullSession) continue;
+
+      // NEW GROSIR FLOW: Check warehouse stock before creating orders
+      try {
+        logger.info('Checking warehouse stock for session', {
+          sessionId: session.id,
+          sessionCode: session.session_code
+        });
+
+        const stockCheck = await this.checkWarehouseStock(session.id);
+
+        // If warehouse doesn't have stock, notify factory and wait
+        if (!stockCheck.hasStock) {
+          logger.info('Warehouse out of stock - notifying factory', {
+            sessionId: session.id,
+            grosirNeeded: stockCheck.grosirNeeded
+          });
+
+          await this.notifyFactoryForStock(session.id);
+
+          // Mark as pending_stock (new status)
+          await this.repository.updateStatus(session.id, 'pending_stock');
+
+          results.push({
+            sessionId: session.id,
+            sessionCode: session.session_code,
+            action: 'pending_stock',
+            participants: stats.participantCount,
+            grosirNeeded: stockCheck.grosirNeeded
+          });
+
+          continue; // Don't create orders yet - wait for stock
+        }
+
+        logger.info('Warehouse has sufficient stock - proceeding with orders', {
+          sessionId: session.id
+        });
+      } catch (error: any) {
+        logger.error('Warehouse stock check failed - proceeding without check', {
+          sessionId: session.id,
+          error: error.message
+        });
+        // Continue with order creation even if warehouse check fails
+        // This is backward compatible for products that don't use warehouse
+      }
 
       // Create bulk orders via order-service
       try {
