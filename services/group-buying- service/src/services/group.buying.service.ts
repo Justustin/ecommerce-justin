@@ -325,10 +325,10 @@ export class GroupBuyingService {
   }
 
   /**
-   * Check warehouse stock for all ordered variants
-   * Returns whether warehouse has sufficient stock or if factory needs to send more
+   * Fulfill demand via warehouse service
+   * Warehouse will check stock, reserve it, and send WhatsApp to factory if needed
    */
-  async checkWarehouseStock(sessionId: string) {
+  async fulfillWarehouseDemand(sessionId: string) {
     const session = await this.repository.findById(sessionId);
     if (!session) {
       throw new Error('Session not found');
@@ -350,29 +350,37 @@ export class GroupBuyingService {
         return acc;
       }, {} as Record<string, number>);
 
-      // Check warehouse for each variant
-      const stockChecks = await Promise.all(
-        Object.entries(variantDemands).map(async ([variantId, quantity]) => {
-          const response = await axios.post(
-            `${warehouseServiceUrl}/api/warehouse/check-stock`,
-            {
-              productId: session.product_id,
-              variantId: variantId === 'base' ? null : variantId,
-              quantity
-            },
-            {
-              headers: { 'Content-Type': 'application/json' },
-              timeout: 10000
-            }
-          );
-          return { variantId, ...response.data };
-        })
-      );
+      const grosirUnitSize = session.products.grosir_unit_size || 12;
+      const results = [];
 
-      const allInStock = stockChecks.every(check => check.hasStock);
-      const grosirNeeded = stockChecks
-        .filter(check => !check.hasStock)
-        .reduce((sum, check) => sum + (check.grosirUnitsNeeded || 0), 0);
+      // Call warehouse /fulfill-demand for each variant
+      // Warehouse service will handle stock check and factory WhatsApp
+      for (const [variantId, quantity] of Object.entries(variantDemands)) {
+        const response = await axios.post(
+          `${warehouseServiceUrl}/api/warehouse/fulfill-demand`,
+          {
+            productId: session.product_id,
+            variantId: variantId === 'base' ? null : variantId,
+            quantity,
+            wholesaleUnit: grosirUnitSize
+          },
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+          }
+        );
+
+        results.push({
+          variantId,
+          quantity,
+          ...response.data
+        });
+      }
+
+      const allInStock = results.every(r => r.hasStock);
+      const totalGrosirNeeded = results
+        .filter(r => !r.hasStock)
+        .reduce((sum, r) => sum + (r.grosirUnitsNeeded || 0), 0);
 
       // Update session with warehouse check results
       await prisma.group_buying_sessions.update({
@@ -380,120 +388,31 @@ export class GroupBuyingService {
         data: {
           warehouse_check_at: new Date(),
           warehouse_has_stock: allInStock,
-          grosir_units_needed: grosirNeeded
+          grosir_units_needed: totalGrosirNeeded,
+          // WhatsApp sent by warehouse service if no stock
+          factory_whatsapp_sent: !allInStock,
+          factory_notified_at: !allInStock ? new Date() : null
         }
       });
 
-      logger.info('Warehouse stock check completed', {
+      logger.info('Warehouse demand fulfilled', {
         sessionId,
         allInStock,
-        grosirNeeded,
-        stockChecks
+        totalGrosirNeeded,
+        results
       });
 
       return {
         hasStock: allInStock,
-        grosirNeeded,
-        stockChecks
+        grosirNeeded: totalGrosirNeeded,
+        results
       };
     } catch (error: any) {
-      logger.error('Warehouse stock check failed', {
+      logger.error('Warehouse demand fulfillment failed', {
         sessionId,
         error: error.message
       });
-      throw new Error(`Failed to check warehouse stock: ${error.message}`);
-    }
-  }
-
-  /**
-   * Notify factory via WhatsApp to send stock to warehouse
-   * Sends automated message with grosir units needed
-   */
-  async notifyFactoryForStock(sessionId: string) {
-    const session = await this.repository.findById(sessionId);
-    if (!session) {
-      throw new Error('Session not found');
-    }
-
-    if (session.factory_whatsapp_sent) {
-      logger.info('Factory already notified via WhatsApp', { sessionId });
-      return { message: 'Factory already notified' };
-    }
-
-    const factory = session.factories;
-    if (!factory.phone_number) {
-      throw new Error(
-        `Factory phone number not configured. ` +
-        `Please add phone number for factory: ${factory.factory_name}`
-      );
-    }
-
-    const whatsappServiceUrl = process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3012';
-
-    // Calculate total grosir needed
-    const totalUnits = session.grosir_units_needed || 1;
-    const grosirUnitSize = session.products.grosir_unit_size || 12;
-
-    const message = `
-🏭 *Purchase Order - ${factory.factory_name}*
-
-*Product:* ${session.products.name}
-*Session Code:* ${session.session_code}
-*Grosir Units Needed:* ${totalUnits}
-*Total Quantity:* ${totalUnits * grosirUnitSize}
-
-Please prepare and send to Laku Warehouse.
-
-*Delivery Address:*
-Laku Warehouse
-${process.env.WAREHOUSE_ADDRESS || '[Warehouse Address]'}
-
-Thank you!
-    `.trim();
-
-    try {
-      await retryWithBackoff(
-        () => axios.post(`${whatsappServiceUrl}/api/whatsapp/send`, {
-          phoneNumber: factory.phone_number,
-          message
-        }, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 10000
-        }),
-        {
-          maxRetries: 3,
-          initialDelay: 1000
-        }
-      );
-
-      const { prisma } = await import('@repo/database');
-      await prisma.group_buying_sessions.update({
-        where: { id: sessionId },
-        data: {
-          factory_notified_at: new Date(),
-          factory_whatsapp_sent: true
-        }
-      });
-
-      logger.info('Factory notified via WhatsApp', {
-        sessionId,
-        factoryName: factory.factory_name,
-        phoneNumber: factory.phone_number,
-        grosirNeeded: totalUnits
-      });
-
-      return {
-        message: 'Factory notified successfully',
-        phoneNumber: factory.phone_number,
-        grosirNeeded: totalUnits
-      };
-    } catch (error: any) {
-      logger.error('Failed to send WhatsApp to factory', {
-        sessionId,
-        factoryName: factory.factory_name,
-        error: error.message
-      });
-      throw new Error(`Failed to notify factory: ${error.message}`);
+      throw new Error(`Failed to fulfill warehouse demand: ${error.message}`);
     }
   }
 
@@ -686,23 +605,23 @@ Thank you!
 
       if (!fullSession) continue;
 
-      // NEW GROSIR FLOW: Check warehouse stock before creating orders
+      // NEW GROSIR FLOW: Fulfill demand via warehouse
+      // Warehouse will check stock, reserve it, and send WhatsApp to factory if needed
       try {
-        logger.info('Checking warehouse stock for session', {
+        logger.info('Fulfilling warehouse demand for session', {
           sessionId: session.id,
           sessionCode: session.session_code
         });
 
-        const stockCheck = await this.checkWarehouseStock(session.id);
+        const warehouseResult = await this.fulfillWarehouseDemand(session.id);
 
-        // If warehouse doesn't have stock, notify factory and wait
-        if (!stockCheck.hasStock) {
-          logger.info('Warehouse out of stock - notifying factory', {
+        // If warehouse doesn't have stock, factory has been notified via WhatsApp
+        // Mark session as pending_stock and wait
+        if (!warehouseResult.hasStock) {
+          logger.info('Warehouse out of stock - factory notified, waiting for stock', {
             sessionId: session.id,
-            grosirNeeded: stockCheck.grosirNeeded
+            grosirNeeded: warehouseResult.grosirNeeded
           });
-
-          await this.notifyFactoryForStock(session.id);
 
           // Mark as pending_stock (new status)
           await this.repository.updateStatus(session.id, 'pending_stock');
@@ -712,7 +631,7 @@ Thank you!
             sessionCode: session.session_code,
             action: 'pending_stock',
             participants: stats.participantCount,
-            grosirNeeded: stockCheck.grosirNeeded
+            grosirNeeded: warehouseResult.grosirNeeded
           });
 
           continue; // Don't create orders yet - wait for stock
@@ -722,7 +641,7 @@ Thank you!
           sessionId: session.id
         });
       } catch (error: any) {
-        logger.error('Warehouse stock check failed - proceeding without check', {
+        logger.error('Warehouse demand fulfillment failed - proceeding without check', {
           sessionId: session.id,
           error: error.message
         });
