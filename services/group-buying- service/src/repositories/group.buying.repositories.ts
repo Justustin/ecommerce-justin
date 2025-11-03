@@ -70,6 +70,7 @@ export class GroupBuyingRepository {
             name: true,
             description: true,
             base_price: true,
+            grosir_unit_size: true,  // NEW: For grosir allocation system
             product_images: {
               orderBy: { display_order: 'asc' },
               select: {
@@ -87,7 +88,7 @@ export class GroupBuyingRepository {
           province: true,
           phone_number: true,
           logo_url: true,
-          owner_id: true  // ✅ Add this
+          owner_id: true
         }
         },
         group_participants: {
@@ -309,7 +310,7 @@ export class GroupBuyingRepository {
   }
 
 
-  async updateStatus(id: string, status: 'forming' | 'active' | 'moq_reached' | 'success' | 'failed' | 'cancelled') {
+  async updateStatus(id: string, status: 'forming' | 'active' | 'moq_reached' | 'success' | 'failed' | 'cancelled' | 'pending_stock' | 'stock_received') {
     const updateData: any = {
       status,
       updated_at: new Date()
@@ -324,17 +325,24 @@ export class GroupBuyingRepository {
       updateData.production_completed_at = new Date();
     }
 
-    return this.prisma.group_buying_sessions.update({
-      where: { id },
-      data: updateData,
-      include: {
-        _count: {
-          select: {
-            group_participants: true
-          }
-        }
-      }
-    });
+    // CRITICAL: For processExpiredSessions race condition prevention
+    // Only update if current status is NOT already at the target status
+    // This makes the operation idempotent
+    try {
+      const result = await this.prisma.group_buying_sessions.updateMany({
+        where: {
+          id,
+          status: { not: status } // Only update if status is different
+        },
+        data: updateData
+      });
+
+      // Return true if row was updated, false if already at that status
+      return result.count > 0;
+    } catch (error) {
+      console.error(`Failed to update status for session ${id}:`, error);
+      return false;
+    }
   }
 
   async markMoqReached(id: string) {
