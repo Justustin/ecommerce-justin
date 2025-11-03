@@ -3,6 +3,7 @@ import { RefundRepository } from '../repositories/refund.repository';
 import { PaymentRepository } from '../repositories/payment.repository';
 import { TransactionLedgerService } from './transaction-ledger.service';
 import { CreateRefundDTO } from '../types';
+import { notificationClient } from '../clients/notification.client';
 
 export class RefundService {
   private refundRepo: RefundRepository;
@@ -261,21 +262,19 @@ export class RefundService {
         orderNumber = order?.order_number || 'N/A';
       }
 
-      await prisma.notifications.create({
-        data: {
-          user_id: userId,
-          type: 'group_failed',
-          title: status === 'completed' ? 'Refund Processed' : 'Refund Failed',
-          message: status === 'completed'
-            ? orderId
-              ? `Your refund for order ${orderNumber} has been processed.`
-              : `Your refund for group buying session has been processed.`
-            : orderId
-              ? `Refund processing failed for order ${orderNumber}. Please contact support.`
-              : `Refund processing failed. Please contact support.`,
-          action_url: orderId ? `/orders/${orderId}` : null,
-          related_id: orderId
-        }
+      await notificationClient.sendNotification({
+        userId: userId,
+        type: 'group_failed',
+        title: status === 'completed' ? 'Refund Processed' : 'Refund Failed',
+        message: status === 'completed'
+          ? orderId
+            ? `Your refund for order ${orderNumber} has been processed.`
+            : `Your refund for group buying session has been processed.`
+          : orderId
+            ? `Refund processing failed for order ${orderNumber}. Please contact support.`
+            : `Refund processing failed. Please contact support.`,
+        actionUrl: orderId ? `/orders/${orderId}` : null,
+        relatedId: orderId
       });
     } catch (error) {
       console.error('Failed to send refund notification:', error);

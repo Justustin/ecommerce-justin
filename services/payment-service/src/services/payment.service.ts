@@ -4,6 +4,7 @@ import { TransactionLedgerService } from './transaction-ledger.service';
 import { CreatePaymentDTO, CreateEscrowPaymentDTO } from '../types';
 import { xenditInvoiceClient } from '../config/xendit';
 import { CreateInvoiceRequest } from 'xendit-node/invoice/models';
+import { notificationClient } from '../clients/notification.client';
 
 export class PaymentService {
   private repository: PaymentRepository;
@@ -251,17 +252,15 @@ async handlePaidCallback(callbackData: any) {
         select: { order_number: true }
       });
 
-      await prisma.notifications.create({
-        data: {
-          user_id: userId,
-          type: status === 'success' ? 'payment_success' : 'order_created',
-          title: status === 'success' ? 'Payment Successful' : 'Payment Failed',
-          message: status === 'success' 
-            ? `Your payment for order ${order?.order_number} has been confirmed!`
-            : `Payment failed for order ${order?.order_number}. Please try again.`,
-          action_url: `/orders/${orderId}`,
-          related_id: orderId
-        }
+      await notificationClient.sendNotification({
+        userId: userId,
+        type: status === 'success' ? 'payment_success' : 'order_created',
+        title: status === 'success' ? 'Payment Successful' : 'Payment Failed',
+        message: status === 'success'
+          ? `Your payment for order ${order?.order_number} has been confirmed!`
+          : `Payment failed for order ${order?.order_number}. Please try again.`,
+        actionUrl: `/orders/${orderId}`,
+        relatedId: orderId
       });
     } catch (error) {
       console.error('Failed to send payment notification:', error);
