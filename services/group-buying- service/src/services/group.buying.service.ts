@@ -69,17 +69,19 @@ export class GroupBuyingService {
             priceTier75: tier75,
             priceTier100: tier100,
             currentTier: 25,
-            groupPrice: tier25  // Start at tier 25 price (highest)
+            groupPrice: data.groupPrice  // Store base price (NOT tier price)
         };
 
         const session = await this.repository.createSession(sessionData);
 
-        // TIERING SYSTEM: Create bot participant to ensure 25% minimum MOQ
-        await this.createBotParticipant(session.id);
+        // NOTE: Bot is NOT created here
+        // Bot will be created in processExpiredSessions ONLY if < 25% MOQ filled
+        // This ensures we don't always hit 25% but only fill to minimum when needed
 
         logger.info('Group buying session created with tiering', {
             sessionId: session.id,
             sessionCode: session.session_code,
+            basePrice: data.groupPrice,
             tiers: {
                 tier25,
                 tier50,
@@ -273,16 +275,9 @@ export class GroupBuyingService {
 
         await this.checkMoqReached(session.id)
 
-        // TIERING SYSTEM: Update pricing tier based on new fill percentage
-        try {
-          await this.updatePricingTier(data.groupSessionId);
-        } catch (error: any) {
-          logger.error('Failed to update pricing tier', {
-            sessionId: data.groupSessionId,
-            error: error.message
-          });
-          // Non-critical error - continue
-        }
+        // NOTE: Tier pricing is NOT calculated here
+        // Everyone pays BASE PRICE upfront
+        // Refunds based on final tier are issued in processExpiredSessions
 
         return {
           participant,
@@ -772,21 +767,165 @@ export class GroupBuyingService {
         // This is backward compatible for products that don't use warehouse
       }
 
-      // TIERING SYSTEM: Remove bot participant before creating orders
-      if (fullSession.bot_participant_id) {
+      // TIERING SYSTEM: Calculate final tier and issue refunds
+      const { prisma } = await import('@repo/database');
+
+      // Get all REAL participants (exclude any existing bots)
+      const realParticipants = fullSession.group_participants.filter(p => !p.is_bot_participant);
+      const realQuantity = realParticipants.reduce((sum, p) => sum + p.quantity, 0);
+      const realFillPercentage = (realQuantity / fullSession.target_moq) * 100;
+
+      logger.info('Calculating final tier for session', {
+        sessionId: session.id,
+        realParticipants: realParticipants.length,
+        realQuantity,
+        targetMoq: fullSession.target_moq,
+        fillPercentage: realFillPercentage
+      });
+
+      // If < 25%, create bot to fill to 25%
+      let botCreated = false;
+      if (realFillPercentage < 25) {
+        const botQuantity = Math.ceil(fullSession.target_moq * 0.25) - realQuantity;
+
+        if (botQuantity > 0) {
+          const botUserId = process.env.BOT_USER_ID;
+          if (botUserId) {
+            try {
+              const botParticipant = await prisma.group_participants.create({
+                data: {
+                  group_session_id: session.id,
+                  user_id: botUserId,
+                  quantity: botQuantity,
+                  variant_id: null,
+                  unit_price: Number(fullSession.group_price), // Base price
+                  total_price: Number(fullSession.group_price) * botQuantity,
+                  is_bot_participant: true,
+                  joined_at: new Date()
+                }
+              });
+
+              await prisma.group_buying_sessions.update({
+                where: { id: session.id },
+                data: { bot_participant_id: botParticipant.id }
+              });
+
+              botCreated = true;
+              logger.info('Bot created to fill to 25% MOQ', {
+                sessionId: session.id,
+                botQuantity,
+                realQuantity,
+                totalNow: realQuantity + botQuantity
+              });
+            } catch (error: any) {
+              logger.error('Failed to create bot participant', {
+                sessionId: session.id,
+                error: error.message
+              });
+            }
+          }
+        }
+      }
+
+      // Determine final tier based on REAL user fill percentage (not including bot)
+      let finalTier = 25;
+      let finalPrice = Number(fullSession.price_tier_25);
+
+      if (realFillPercentage >= 100) {
+        finalTier = 100;
+        finalPrice = Number(fullSession.price_tier_100);
+      } else if (realFillPercentage >= 75) {
+        finalTier = 75;
+        finalPrice = Number(fullSession.price_tier_75);
+      } else if (realFillPercentage >= 50) {
+        finalTier = 50;
+        finalPrice = Number(fullSession.price_tier_50);
+      }
+
+      // Update session with final tier
+      await prisma.group_buying_sessions.update({
+        where: { id: session.id },
+        data: {
+          current_tier: finalTier,
+          updated_at: new Date()
+        }
+      });
+
+      logger.info('Final tier determined', {
+        sessionId: session.id,
+        realFillPercentage: Math.round(realFillPercentage),
+        finalTier,
+        finalPrice,
+        basePrice: Number(fullSession.group_price)
+      });
+
+      // Calculate refund amount per unit
+      const basePrice = Number(fullSession.group_price);
+      const refundPerUnit = basePrice - finalPrice;
+
+      // Issue refunds to all REAL participants (not bot)
+      if (refundPerUnit > 0) {
+        const walletServiceUrl = process.env.WALLET_SERVICE_URL || 'http://localhost:3007';
+
+        for (const participant of realParticipants) {
+          const totalRefund = refundPerUnit * participant.quantity;
+
+          try {
+            await axios.post(`${walletServiceUrl}/api/wallet/credit`, {
+              userId: participant.user_id,
+              amount: totalRefund,
+              description: `Group buying refund - Session ${fullSession.session_code} (Tier ${finalTier}%)`,
+              reference: `GROUP_REFUND_${session.id}_${participant.id}`,
+              metadata: {
+                sessionId: session.id,
+                participantId: participant.id,
+                basePricePerUnit: basePrice,
+                finalPricePerUnit: finalPrice,
+                refundPerUnit: refundPerUnit,
+                quantity: participant.quantity
+              }
+            }, {
+              headers: { 'Content-Type': 'application/json' },
+              timeout: 10000
+            });
+
+            logger.info('Refund issued to participant', {
+              sessionId: session.id,
+              userId: participant.user_id,
+              quantity: participant.quantity,
+              refundPerUnit,
+              totalRefund
+            });
+          } catch (error: any) {
+            logger.error('Failed to issue refund to participant', {
+              sessionId: session.id,
+              userId: participant.user_id,
+              totalRefund,
+              error: error.message
+            });
+            // Continue processing other participants
+          }
+        }
+      } else {
+        logger.info('No refunds needed - final price equals base price', {
+          sessionId: session.id,
+          basePrice,
+          finalPrice
+        });
+      }
+
+      // Remove bot participant before creating orders (bot doesn't get real order)
+      if (botCreated && fullSession.bot_participant_id) {
         try {
           await this.removeBotParticipant(fullSession.bot_participant_id);
-          logger.info('Bot participant removed from session', {
-            sessionId: session.id,
-            botParticipantId: fullSession.bot_participant_id
+          logger.info('Bot participant removed after refunds issued', {
+            sessionId: session.id
           });
         } catch (error: any) {
           logger.error('Failed to remove bot participant', {
             sessionId: session.id,
-            botParticipantId: fullSession.bot_participant_id,
             error: error.message
           });
-          // Continue even if bot removal fails
         }
       }
 
