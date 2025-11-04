@@ -405,6 +405,8 @@ model orders {
   order_number            String                 @unique @db.VarChar(50)
   user_id                 String                 @db.Uuid
   group_session_id        String?                @db.Uuid
+  seller_id               String?                @db.Uuid  // NEW: For seller orders
+  order_source            order_source           @default(group_buying)  // NEW: Order source type
   status                  order_status           @default(pending_payment)
   subtotal                Decimal                @db.Decimal(15, 2)
   shipping_cost           Decimal?               @default(0.00) @db.Decimal(15, 2)
@@ -430,6 +432,7 @@ model orders {
   group_participants      group_participants[]
   order_items             order_items[]
   group_buying_sessions   group_buying_sessions? @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sellers                 sellers?               @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users                   users                  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payments                payments[]
   platform_commissions    platform_commissions[]
@@ -437,9 +440,12 @@ model orders {
   settlement_items        settlement_items[]
   shipments               shipments[]
   transaction_ledger      transaction_ledger[]
+  seller_stock_movements  seller_stock_movements[]  // NEW: Stock movements
 
   @@index([created_at(sort: Desc)], map: "idx_orders_created")
   @@index([group_session_id], map: "idx_orders_group_session")
+  @@index([seller_id], map: "idx_orders_seller")  // NEW index
+  @@index([order_source], map: "idx_orders_source")  // NEW index
   @@index([order_number], map: "idx_orders_number")
   @@index([status], map: "idx_orders_status")
   @@index([user_id], map: "idx_orders_user")
@@ -615,7 +621,7 @@ model product_variants {
   size                       String?                      @db.VarChar(50)
   material                   String?                      @db.VarChar(100)
   price_adjustment           Decimal?                     @default(0.00) @db.Decimal(15, 2)
-  stock_quantity             Int?                         @default(0)
+  stock_quantity             Int?                         @default(0)  // DEPRECATED: Use seller_inventory_variants instead
   weight_grams               Int?
   image_url                  String?
   is_active                  Boolean?                     @default(true)
@@ -625,6 +631,8 @@ model product_variants {
   order_items                order_items[]
   products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   grosir_variant_allocations grosir_variant_allocations[]
+  seller_inventory_variants  seller_inventory_variants[]  // NEW: Seller variant inventory
+  seller_stock_movements     seller_stock_movements[]     // NEW: Stock movements
 
   @@index([product_id], map: "idx_product_variants_product")
   @@index([sku], map: "idx_product_variants_sku")
@@ -648,8 +656,10 @@ model grosir_variant_allocations {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model products {
   id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  factory_id                 String                       @db.Uuid
+  factory_id                 String?                      @db.Uuid  // Nullable - only for factory products
+  seller_id                  String?                      @db.Uuid  // Nullable - only for seller products
   category_id                String                       @db.Uuid
+  product_source             product_source               @default(factory_group_buying)  // NEW: Source type
   sku                        String                       @unique @db.VarChar(100)
   name                       String                       @db.VarChar(255)
   slug                       String                       @unique(map: "products_slug_unique") @db.VarChar(255)
@@ -664,7 +674,7 @@ model products {
   length_cm                  Decimal?                     @db.Decimal(10, 2)
   width_cm                   Decimal?                     @db.Decimal(10, 2)
   height_cm                  Decimal?                     @db.Decimal(10, 2)
-  stock_quantity             Int?                         @default(0)
+  stock_quantity             Int?                         @default(0)  // DEPRECATED: Use seller_inventory instead
   meta_title                 String?                      @db.VarChar(255)
   meta_description           String?
   published_at               DateTime?                    @db.Timestamptz(6)
@@ -677,11 +687,15 @@ model products {
   product_reviews            product_reviews[]
   product_variants           product_variants[]
   grosir_variant_allocations grosir_variant_allocations[]
+  seller_inventory           seller_inventory[]           // NEW: Seller inventory
   categories                 categories                   @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  factories                  factories                    @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  factories                  factories?                   @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sellers                    sellers?                     @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([category_id], map: "idx_products_category")
   @@index([factory_id], map: "idx_products_factory")
+  @@index([seller_id], map: "idx_products_seller")          // NEW index
+  @@index([product_source], map: "idx_products_source")     // NEW index
   @@index([published_at], map: "idx_products_published")
   @@index([sku], map: "idx_products_sku")
   @@index([slug], map: "idx_products_slug")
@@ -895,6 +909,9 @@ model users {
   user_addresses                         user_addresses[]
   users                                  users?                @relation("usersTousers", fields: [referred_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   other_users                            users[]               @relation("usersTousers")
+  sellers                                sellers[]             // NEW: Seller accounts
+  sellers_verified_by                    sellers[]             @relation("sellers_verified_by")  // NEW: Sellers verified by this user
+  seller_stock_movements                 seller_stock_movements[]  // NEW: Stock movements performed by this user
 
   @@index([email], map: "idx_users_email")
   @@index([phone_number], map: "idx_users_phone")
@@ -1108,6 +1125,7 @@ enum user_role {
   customer
   office_staff
   factory_owner
+  seller
   admin
 }
 
@@ -1122,4 +1140,239 @@ enum verification_status {
   pending
   verified
   rejected
+}
+
+enum product_source {
+  factory_group_buying
+  seller_inventory
+}
+
+enum seller_type {
+  individual
+  business
+}
+
+enum seller_status {
+  pending
+  active
+  suspended
+  inactive
+}
+
+enum stock_movement_type {
+  purchase
+  sale
+  return
+  damaged
+  lost
+  adjustment
+  reserved
+  released
+}
+
+enum order_source {
+  group_buying
+  seller_store
+  mixed
+}
+
+/// Sellers - Individual or business sellers who maintain their own inventory
+model sellers {
+  id                      String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id                 String              @db.Uuid
+  seller_type             seller_type         @default(individual)
+  status                  seller_status       @default(pending)
+
+  // Store Info
+  store_name              String              @db.VarChar(255)
+  store_slug              String              @unique @db.VarChar(255)
+  store_description       String?
+  store_logo_url          String?
+  store_banner_url        String?
+
+  // Contact
+  phone_number            String              @db.VarChar(20)
+  email                   String?             @db.VarChar(255)
+
+  // Address
+  province                String              @db.VarChar(100)
+  city                    String              @db.VarChar(100)
+  district                String              @db.VarChar(100)
+  postal_code             String?             @db.VarChar(10)
+  address_line            String
+
+  // Legal (for business sellers)
+  business_license_number String?             @unique @db.VarChar(50)
+  business_license_url    String?
+  tax_id                  String?             @db.VarChar(50)
+
+  // Banking
+  bank_name               String?             @db.VarChar(100)
+  bank_account_number     String?             @db.VarChar(50)
+  bank_account_name       String?             @db.VarChar(255)
+
+  // Verification
+  verification_status     verification_status @default(unverified)
+  verified_at             DateTime?           @db.Timestamptz(6)
+  verified_by             String?             @db.Uuid
+
+  // Timestamps
+  created_at              DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime            @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  users                   users               @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_verified_by       users?              @relation("sellers_verified_by", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  products                products[]
+  seller_inventory        seller_inventory[]
+  orders                  orders[]
+  seller_settlements      seller_settlements[]
+
+  @@index([user_id], map: "idx_sellers_user_id")
+  @@index([status], map: "idx_sellers_status")
+  @@index([store_slug], map: "idx_sellers_store_slug")
+  @@index([verification_status], map: "idx_sellers_verification_status")
+}
+
+/// Seller-owned inventory for products
+model seller_inventory {
+  id                   String                      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id            String                      @db.Uuid
+  product_id           String                      @db.Uuid
+
+  // Stock tracking
+  stock_quantity       Int                         @default(0)
+  reserved_quantity    Int                         @default(0)
+
+  // Pricing (seller can override product base price)
+  seller_price         Decimal                     @db.Decimal(15, 2)
+  cost_price           Decimal?                    @db.Decimal(15, 2)
+
+  // Location
+  warehouse_location   String?                     @db.VarChar(255)
+
+  // Stock alerts
+  low_stock_threshold  Int?                        @default(10)
+
+  // Status
+  is_active            Boolean                     @default(true)
+
+  // Timestamps
+  created_at           DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime                    @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  sellers              sellers                     @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products             products                    @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  inventory_variants   seller_inventory_variants[]
+  stock_movements      seller_stock_movements[]
+
+  @@unique([seller_id, product_id])
+  @@index([seller_id], map: "idx_seller_inventory_seller")
+  @@index([product_id], map: "idx_seller_inventory_product")
+  @@index([stock_quantity], map: "idx_seller_inventory_stock")
+}
+
+/// Variant-specific inventory for sellers
+model seller_inventory_variants {
+  id                String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  inventory_id      String           @db.Uuid
+  variant_id        String           @db.Uuid
+
+  // Stock tracking
+  stock_quantity    Int              @default(0)
+  reserved_quantity Int              @default(0)
+
+  // Pricing override for this variant
+  price_adjustment  Decimal?         @default(0.00) @db.Decimal(15, 2)
+
+  // Status
+  is_active         Boolean          @default(true)
+
+  // Timestamps
+  created_at        DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime         @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  seller_inventory  seller_inventory @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants  product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([inventory_id, variant_id])
+  @@index([inventory_id], map: "idx_seller_inv_var_inventory")
+  @@index([variant_id], map: "idx_seller_inv_var_variant")
+}
+
+/// Track stock movements for auditing
+model seller_stock_movements {
+  id               String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  inventory_id     String              @db.Uuid
+  variant_id       String?             @db.Uuid
+
+  // Movement details
+  movement_type    stock_movement_type
+  quantity         Int
+  stock_after      Int
+
+  // References
+  order_id         String?             @db.Uuid
+  reference_type   String?             @db.VarChar(50)
+  reference_id     String?             @db.Uuid
+
+  // Notes
+  notes            String?
+  performed_by     String?             @db.Uuid
+
+  // Timestamp
+  created_at       DateTime            @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  seller_inventory seller_inventory    @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants?   @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  orders           orders?             @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users            users?              @relation(fields: [performed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([inventory_id], map: "idx_seller_stock_mov_inventory")
+  @@index([order_id], map: "idx_seller_stock_mov_order")
+  @@index([created_at(sort: Desc)], map: "idx_seller_stock_mov_created")
+}
+
+/// Financial settlements for sellers
+model seller_settlements {
+  id                  String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  seller_id           String   @db.Uuid
+  settlement_code     String   @unique @db.VarChar(20)
+
+  // Financial details
+  total_sales         Decimal  @default(0.00) @db.Decimal(15, 2)
+  platform_commission Decimal  @default(0.00) @db.Decimal(15, 2)
+  gateway_fees        Decimal  @default(0.00) @db.Decimal(15, 2)
+  net_amount          Decimal  @db.Decimal(15, 2)
+
+  // Period
+  period_start        DateTime @db.Timestamptz(6)
+  period_end          DateTime @db.Timestamptz(6)
+
+  // Status
+  status              String   @default("pending") @db.VarChar(20)
+
+  // Payment details
+  bank_name           String?  @db.VarChar(100)
+  bank_account_number String?  @db.VarChar(50)
+  bank_account_name   String?  @db.VarChar(255)
+  paid_at             DateTime? @db.Timestamptz(6)
+  payment_reference   String?  @db.VarChar(255)
+
+  // Notes
+  notes               String?
+
+  // Timestamps
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  sellers             sellers  @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([seller_id], map: "idx_seller_settlements_seller")
+  @@index([status], map: "idx_seller_settlements_status")
+  @@index([period_start, period_end], map: "idx_seller_settlements_period")
 }
