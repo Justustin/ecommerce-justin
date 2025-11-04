@@ -694,6 +694,37 @@ router.post('/process-expired', controller.processExpired);
 
 /**
  * @swagger
+ * /api/group-buying/{id}/manual-expire:
+ *   post:
+ *     tags: [Group Buying Sessions]
+ *     summary: Manually expire and process a session (TESTING ONLY)
+ *     description: Sets session end_time to past and immediately processes it. Use for testing without waiting for actual expiration.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Session manually expired and processed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Bad request
+ */
+router.post('/:id/manual-expire', [param('id').isUUID()], controller.manualExpire);
+
+/**
+ * @swagger
  * /api/group-buying/{id}:
  *   delete:
  *     tags: [Group Buying Sessions]

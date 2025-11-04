@@ -189,6 +189,20 @@ export class GroupBuyingController {
     }
   };
 
+  // TESTING: Manually expire a session and process it
+  manualExpire = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await this.service.manuallyExpireAndProcess(id);
+      res.json({
+        message: 'Session manually expired and processed',
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
   deleteSession = async (req: Request, res: Response) => {
     try {
       await this.service.deleteSession(req.params.id);

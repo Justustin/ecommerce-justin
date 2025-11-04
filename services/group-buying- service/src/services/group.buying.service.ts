@@ -856,7 +856,7 @@ export class GroupBuyingService {
 
       // Issue refunds to all REAL participants (not bot)
       if (refundPerUnit > 0) {
-        const walletServiceUrl = process.env.WALLET_SERVICE_URL || 'http://localhost:3007';
+        const walletServiceUrl = process.env.WALLET_SERVICE_URL || 'http://localhost:3010';
 
         for (const participant of realParticipants) {
           const totalRefund = refundPerUnit * participant.quantity;
@@ -1089,6 +1089,30 @@ export class GroupBuyingService {
     }
 
     return this.repository.deleteSession(id);
+  }
+
+  /**
+   * TESTING: Manually expire and process a specific session
+   * Sets end_time to now and immediately processes the session
+   */
+  async manuallyExpireAndProcess(sessionId: string) {
+    const { prisma } = await import('@repo/database');
+
+    // Set end_time to past so it's considered expired
+    await prisma.group_buying_sessions.update({
+      where: { id: sessionId },
+      data: { end_time: new Date(Date.now() - 1000) } // 1 second ago
+    });
+
+    logger.info('Session manually expired for testing', { sessionId });
+
+    // Process it immediately
+    const results = await this.processExpiredSessions();
+
+    return {
+      sessionId,
+      processResults: results.filter(r => r.sessionId === sessionId)
+    };
   }
 
   /**
