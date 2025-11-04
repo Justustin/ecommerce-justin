@@ -11,7 +11,19 @@ const controller = new GroupBuyingController();
  * /api/group-buying:
  *   post:
  *     tags: [Group Buying Sessions]
- *     summary: Create a new group buying session
+ *     summary: Create a new group buying session with tiered pricing
+ *     description: |
+ *       Create a group buying session with dynamic pricing based on MOQ fill percentage.
+ *
+ *       **Tiering System:**
+ *       - Tier 25% → Price when 25% of real users join (highest price)
+ *       - Tier 50% → Price when 50% of real users join
+ *       - Tier 75% → Price when 75% of real users join
+ *       - Tier 100% → Price when 100% of real users join (lowest price)
+ *
+ *       **Bot Auto-Join:** A bot automatically joins with 25% MOQ to ensure minimum fill.
+ *
+ *       **Note:** groupPrice is used as the initial price (typically same as priceTier25).
  *     requestBody:
  *       required: true
  *       content:
@@ -24,40 +36,71 @@ const controller = new GroupBuyingController();
  *               - targetMoq
  *               - groupPrice
  *               - endTime
+ *               - priceTier25
+ *               - priceTier50
+ *               - priceTier75
+ *               - priceTier100
  *             properties:
  *               productId:
  *                 type: string
  *                 format: uuid
+ *                 description: Product UUID
  *               factoryId:
  *                 type: string
  *                 format: uuid
+ *                 description: Factory UUID
  *               sessionCode:
  *                 type: string
  *                 maxLength: 20
+ *                 description: Optional custom session code (auto-generated if not provided)
  *               targetMoq:
  *                 type: integer
  *                 minimum: 2
+ *                 description: Minimum order quantity required
  *               groupPrice:
  *                 type: number
  *                 minimum: 0.01
+ *                 description: Starting price (typically same as priceTier25)
+ *               priceTier25:
+ *                 type: number
+ *                 minimum: 0.01
+ *                 description: Price when 25% of MOQ is filled by real users (highest)
+ *               priceTier50:
+ *                 type: number
+ *                 minimum: 0.01
+ *                 description: Price when 50% of MOQ is filled by real users
+ *               priceTier75:
+ *                 type: number
+ *                 minimum: 0.01
+ *                 description: Price when 75% of MOQ is filled by real users
+ *               priceTier100:
+ *                 type: number
+ *                 minimum: 0.01
+ *                 description: Price when 100% of MOQ is filled by real users (lowest)
  *               endTime:
  *                 type: string
  *                 format: date-time
+ *                 description: Session expiry time
  *               estimatedCompletionDate:
  *                 type: string
  *                 format: date-time
  *                 nullable: true
+ *                 description: Estimated production completion date
  *             example:
  *               productId: "550e8400-e29b-41d4-a716-446655440000"
  *               factoryId: "550e8400-e29b-41d4-a716-446655440001"
  *               sessionCode: "GROUP2025"
- *               targetMoq: 50
- *               groupPrice: 100.50
- *               endTime: "2025-10-07T19:00:00.000Z"
- *               estimatedCompletionDate: "2025-10-15T00:00:00.000Z"
+ *               targetMoq: 100
+ *               groupPrice: 150000
+ *               priceTier25: 150000
+ *               priceTier50: 135000
+ *               priceTier75: 120000
+ *               priceTier100: 105000
+ *               endTime: "2025-12-31T23:59:59.000Z"
+ *               estimatedCompletionDate: "2026-01-15T00:00:00.000Z"
  *     responses:
  *       201:
- *         description: Session created successfully
+ *         description: Session created successfully with bot auto-joined
  *         content:
  *           application/json:
  *             schema:
@@ -65,10 +108,19 @@ const controller = new GroupBuyingController();
  *               properties:
  *                 message:
  *                   type: string
+ *                   example: "Group buying session created successfully"
  *                 data:
  *                   $ref: '#/components/schemas/GroupBuyingSession'
  *       400:
- *         description: Bad request (e.g., invalid data)
+ *         description: Bad request (e.g., invalid data, tier prices not descending)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Tier prices must be in descending order (tier25 >= tier50 >= tier75 >= tier100)"
  */
 router.post(
   '/',
@@ -76,8 +128,12 @@ router.post(
     param('id').optional().isUUID(), // Not used here but included for consistency
     body('productId').isUUID().withMessage('Invalid product ID'),
     body('factoryId').isUUID().withMessage('Invalid factory ID'),
-    body('targetMoq').isInt({ min: 2 }).withMessage('Target MOQ must be at least 2'), // Updated to match service
+    body('targetMoq').isInt({ min: 2 }).withMessage('Target MOQ must be at least 2'),
     body('groupPrice').isFloat({ min: 0.01 }).withMessage('Group price must be greater than 0'),
+    body('priceTier25').isFloat({ min: 0.01 }).withMessage('Price tier 25% must be greater than 0'),
+    body('priceTier50').isFloat({ min: 0.01 }).withMessage('Price tier 50% must be greater than 0'),
+    body('priceTier75').isFloat({ min: 0.01 }).withMessage('Price tier 75% must be greater than 0'),
+    body('priceTier100').isFloat({ min: 0.01 }).withMessage('Price tier 100% must be greater than 0'),
     body('endTime').isISO8601().withMessage('Invalid end time format'),
     body('sessionCode').optional().isLength({ min: 1, max: 20 }).withMessage('Session code must be 1-20 characters'),
     body('estimatedCompletionDate').optional().isISO8601().withMessage('Invalid estimated completion date format'),
@@ -677,48 +733,92 @@ export default router;
  *         id:
  *           type: string
  *           format: uuid
+ *           description: Session UUID
  *         productId:
  *           type: string
  *           format: uuid
+ *           description: Product UUID
  *         factoryId:
  *           type: string
  *           format: uuid
+ *           description: Factory UUID
  *         sessionCode:
  *           type: string
+ *           description: Unique session code
  *         targetMoq:
  *           type: integer
+ *           description: Minimum order quantity
  *         groupPrice:
  *           type: number
+ *           description: Current active price
+ *         priceTier25:
+ *           type: number
+ *           nullable: true
+ *           description: Price when 25% MOQ filled (highest)
+ *         priceTier50:
+ *           type: number
+ *           nullable: true
+ *           description: Price when 50% MOQ filled
+ *         priceTier75:
+ *           type: number
+ *           nullable: true
+ *           description: Price when 75% MOQ filled
+ *         priceTier100:
+ *           type: number
+ *           nullable: true
+ *           description: Price when 100% MOQ filled (lowest)
+ *         currentTier:
+ *           type: integer
+ *           nullable: true
+ *           description: Current active tier (25, 50, 75, or 100)
+ *         botParticipantId:
+ *           type: string
+ *           format: uuid
+ *           nullable: true
+ *           description: Bot participant UUID (if exists)
  *         endTime:
  *           type: string
  *           format: date-time
+ *           description: Session expiry time
  *         estimatedCompletionDate:
  *           type: string
  *           format: date-time
  *           nullable: true
+ *           description: Estimated production completion date
  *         status:
  *           type: string
- *           enum: [forming, active, moq_reached, success, failed, cancelled]
+ *           enum: [forming, active, moq_reached, pending_stock, stock_received, success, failed, cancelled]
+ *           description: Session status
  *     Participant:
  *       type: object
  *       properties:
  *         id:
  *           type: string
  *           format: uuid
+ *           description: Participant UUID
  *         userId:
  *           type: string
  *           format: uuid
+ *           description: User UUID
  *         sessionId:
  *           type: string
  *           format: uuid
+ *           description: Group session UUID
  *         quantity:
  *           type: integer
+ *           description: Quantity ordered
  *         unitPrice:
  *           type: number
+ *           description: Price per unit at time of join
  *         totalPrice:
  *           type: number
+ *           description: Total price paid
  *         variantId:
  *           type: string
  *           format: uuid
  *           nullable: true
+ *           description: Product variant UUID (if applicable)
+ *         isBotParticipant:
+ *           type: boolean
+ *           description: True if this is a bot participant
  */

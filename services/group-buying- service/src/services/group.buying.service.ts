@@ -36,23 +36,57 @@ export class GroupBuyingService {
             }
         }
 
-        // TIERING SYSTEM: Calculate price tiers based on base price
-        // Using the groupPrice as the 25% tier (highest price)
-        const basePrice = Number(data.groupPrice);
+        // TIERING SYSTEM: Validate tier prices are provided and in descending order
+        if (!data.priceTier25 || !data.priceTier50 || !data.priceTier75 || !data.priceTier100) {
+            throw new Error(
+                'All tier prices must be provided: priceTier25, priceTier50, priceTier75, priceTier100'
+            );
+        }
+
+        const tier25 = Number(data.priceTier25);
+        const tier50 = Number(data.priceTier50);
+        const tier75 = Number(data.priceTier75);
+        const tier100 = Number(data.priceTier100);
+
+        // Validate prices are in descending order (higher tier = lower price)
+        if (tier25 < tier50 || tier50 < tier75 || tier75 < tier100) {
+            throw new Error(
+                'Tier prices must be in descending order: ' +
+                'priceTier25 >= priceTier50 >= priceTier75 >= priceTier100. ' +
+                `Got: ${tier25} >= ${tier50} >= ${tier75} >= ${tier100}`
+            );
+        }
+
+        // Validate all tier prices are positive
+        if (tier25 <= 0 || tier50 <= 0 || tier75 <= 0 || tier100 <= 0) {
+            throw new Error('All tier prices must be greater than 0');
+        }
+
         const sessionData = {
             ...data,
-            priceTier25: basePrice,        // 100% of base price at 25% MOQ
-            priceTier50: basePrice * 0.90, // 90% of base price at 50% MOQ
-            priceTier75: basePrice * 0.80, // 80% of base price at 75% MOQ
-            priceTier100: basePrice * 0.70, // 70% of base price at 100% MOQ
+            priceTier25: tier25,
+            priceTier50: tier50,
+            priceTier75: tier75,
+            priceTier100: tier100,
             currentTier: 25,
-            groupPrice: basePrice          // Start at tier 25 price
+            groupPrice: tier25  // Start at tier 25 price (highest)
         };
 
         const session = await this.repository.createSession(sessionData);
 
         // TIERING SYSTEM: Create bot participant to ensure 25% minimum MOQ
         await this.createBotParticipant(session.id);
+
+        logger.info('Group buying session created with tiering', {
+            sessionId: session.id,
+            sessionCode: session.session_code,
+            tiers: {
+                tier25,
+                tier50,
+                tier75,
+                tier100
+            }
+        });
 
         return session;
     }
