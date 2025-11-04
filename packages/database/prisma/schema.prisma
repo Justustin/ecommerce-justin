@@ -289,7 +289,8 @@ model group_participants {
   product_variants      product_variants?     @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payments              payments[]
 
-  @@unique([group_session_id, user_id])
+  // NOTE: Removed unique constraint to allow users to join multiple times with different variants
+  // @@unique([group_session_id, user_id])
   @@index([order_id], map: "idx_group_participants_order")
   @@index([group_session_id], map: "idx_group_participants_session")
   @@index([user_id], map: "idx_group_participants_user")

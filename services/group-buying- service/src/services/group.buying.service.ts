@@ -202,17 +202,8 @@ export class GroupBuyingService {
             throw new Error(`Total price must be ${calculatedTotal} for quantity ${data.quantity}`)
         }
 
-        // Try to create participant - database constraint will prevent duplicates
-        let participant;
-        try {
-            participant = await this.repository.joinSession(data)
-        } catch (error: any) {
-            // CRITICAL FIX #2: Handle unique constraint violation
-            if (error.code === 'P2002') {  // Prisma unique constraint error
-                throw new Error('User has already joined this session')
-            }
-            throw error
-        }
+        // Create participant - users can join multiple times with different variants
+        const participant = await this.repository.joinSession(data)
 
         let paymentResult;
         try {

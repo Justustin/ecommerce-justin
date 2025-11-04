@@ -149,21 +149,33 @@ async handlePaidCallback(callbackData: any) {
     const expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
     const userEmail = user.email || this.generatePlaceholderEmail(user.phone_number);
 
+    // Format phone number for Xendit (must start with +62)
+    let formattedPhone = user.phone_number || '';
+    if (formattedPhone && !formattedPhone.startsWith('+')) {
+      if (formattedPhone.startsWith('0')) {
+        formattedPhone = '+62' + formattedPhone.substring(1);
+      } else if (formattedPhone.startsWith('62')) {
+        formattedPhone = '+' + formattedPhone;
+      } else {
+        formattedPhone = '+62' + formattedPhone;
+      }
+    }
+
     const invoiceData: CreateInvoiceRequest = {
       externalId: `escrow-${data.groupSessionId}-${data.participantId}-${Date.now()}`,
       amount: data.amount,
       payerEmail: userEmail,
       description: `Escrow payment for group buying session`,
-      invoiceDuration: expiresAt 
+      invoiceDuration: expiresAt
         ? Math.floor((expiresAt.getTime() - Date.now()) / 1000).toString()
         : '86400',
       currency: 'IDR',
       shouldSendEmail: Boolean(user.email),
       customer: {
-        givenNames: user.first_name,
-        surname: user.last_name || '',
+        givenNames: user.first_name || 'Customer',
+        surname: user.last_name || '-',
         email: userEmail,
-        mobileNumber: user.phone_number
+        mobileNumber: formattedPhone || undefined  // Optional if not available
       }
     };
 
