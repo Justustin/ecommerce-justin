@@ -35,7 +35,26 @@ export class GroupBuyingService {
                 throw new Error(`Session code ${data.sessionCode} already exists`)
             }
         }
-        return this.repository.createSession(data)
+
+        // TIERING SYSTEM: Calculate price tiers based on base price
+        // Using the groupPrice as the 25% tier (highest price)
+        const basePrice = Number(data.groupPrice);
+        const sessionData = {
+            ...data,
+            priceTier25: basePrice,        // 100% of base price at 25% MOQ
+            priceTier50: basePrice * 0.90, // 90% of base price at 50% MOQ
+            priceTier75: basePrice * 0.80, // 80% of base price at 75% MOQ
+            priceTier100: basePrice * 0.70, // 70% of base price at 100% MOQ
+            currentTier: 25,
+            groupPrice: basePrice          // Start at tier 25 price
+        };
+
+        const session = await this.repository.createSession(sessionData);
+
+        // TIERING SYSTEM: Create bot participant to ensure 25% minimum MOQ
+        await this.createBotParticipant(session.id);
+
+        return session;
     }
 
     async getSessionById(id: string) {
@@ -219,6 +238,17 @@ export class GroupBuyingService {
           }
 
         await this.checkMoqReached(session.id)
+
+        // TIERING SYSTEM: Update pricing tier based on new fill percentage
+        try {
+          await this.updatePricingTier(data.groupSessionId);
+        } catch (error: any) {
+          logger.error('Failed to update pricing tier', {
+            sessionId: data.groupSessionId,
+            error: error.message
+          });
+          // Non-critical error - continue
+        }
 
         return {
           participant,
@@ -661,9 +691,41 @@ export class GroupBuyingService {
         // This is backward compatible for products that don't use warehouse
       }
 
+      // TIERING SYSTEM: Remove bot participant before creating orders
+      if (fullSession.bot_participant_id) {
+        try {
+          await this.removeBotParticipant(fullSession.bot_participant_id);
+          logger.info('Bot participant removed from session', {
+            sessionId: session.id,
+            botParticipantId: fullSession.bot_participant_id
+          });
+        } catch (error: any) {
+          logger.error('Failed to remove bot participant', {
+            sessionId: session.id,
+            botParticipantId: fullSession.bot_participant_id,
+            error: error.message
+          });
+          // Continue even if bot removal fails
+        }
+      }
+
       // Create bulk orders via order-service
       try {
         const orderServiceUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
+
+        // TIERING SYSTEM: Filter out bot participants - only create orders for real users
+        const realParticipants = fullSession.group_participants.filter(
+          p => !p.is_bot_participant
+        );
+
+        if (realParticipants.length === 0) {
+          logger.warn('No real participants in session after filtering bots', {
+            sessionId: session.id
+          });
+          // Mark as failed since only bot was participating
+          await this.repository.markFailed(session.id);
+          continue;
+        }
 
         // MAJOR FIX: Add retry logic for order creation
         const response = await retryWithBackoff(
@@ -673,13 +735,13 @@ export class GroupBuyingService {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 groupSessionId: session.id,
-                participants: fullSession.group_participants.map(p => ({
+                participants: realParticipants.map(p => ({
                   userId: p.user_id,
                   participantId: p.id,
                   productId: fullSession.product_id,
                   variantId: p.variant_id || undefined,
                   quantity: p.quantity,
-                  unitPrice: Number(p.unit_price)
+                  unitPrice: Number(p.unit_price)  // Price they paid at their tier
                 }))
               })
             });
@@ -816,6 +878,143 @@ export class GroupBuyingService {
     }
 
     return this.repository.deleteSession(id);
+  }
+
+  /**
+   * TIERING SYSTEM: Create bot participant to ensure 25% minimum MOQ
+   * The bot participant fills up to 25% of the MOQ to ensure the session
+   * always shows at least 25% filled (even with 0 real users)
+   */
+  private async createBotParticipant(sessionId: string) {
+    const session = await this.repository.findById(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    const botUserId = process.env.BOT_USER_ID;
+    if (!botUserId) {
+      logger.warn('BOT_USER_ID not configured - skipping bot participant creation');
+      return;
+    }
+
+    // Calculate quantity needed for 25% MOQ
+    const botQuantity = Math.ceil(session.target_moq * 0.25);
+    const botPrice = Number(session.price_tier_25 || session.group_price);
+
+    const { prisma } = await import('@repo/database');
+
+    const botParticipant = await prisma.group_participants.create({
+      data: {
+        group_session_id: sessionId,
+        user_id: botUserId,
+        quantity: botQuantity,
+        variant_id: null,  // Bot buys base product (no variant)
+        unit_price: botPrice,
+        total_price: botPrice * botQuantity,
+        is_bot_participant: true,
+        joined_at: new Date()
+      }
+    });
+
+    // Update session with bot participant ID
+    await prisma.group_buying_sessions.update({
+      where: { id: sessionId },
+      data: { bot_participant_id: botParticipant.id }
+    });
+
+    logger.info(`Bot joined session ${session.session_code}`, {
+      sessionId: sessionId,
+      botQuantity,
+      moqPercentage: 25
+    });
+  }
+
+  /**
+   * TIERING SYSTEM: Update pricing tier based on real participant fill percentage
+   * Bot participants don't count toward tier calculation - only real users do
+   */
+  private async updatePricingTier(sessionId: string) {
+    const session = await this.repository.findById(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    // Skip if session doesn't use tiering system
+    if (!session.price_tier_25 || !session.price_tier_50 ||
+        !session.price_tier_75 || !session.price_tier_100) {
+      return;
+    }
+
+    const { prisma } = await import('@repo/database');
+
+    // Get REAL participants only (exclude bot)
+    const realParticipants = await prisma.group_participants.findMany({
+      where: {
+        group_session_id: sessionId,
+        is_bot_participant: false
+      }
+    });
+
+    // Calculate total quantity ordered by real users
+    const realQuantity = realParticipants.reduce((sum, p) => sum + p.quantity, 0);
+    const fillPercentage = (realQuantity / session.target_moq) * 100;
+
+    // Determine new tier based on real user fill percentage
+    let newTier = 25;
+    let newPrice = Number(session.price_tier_25);
+
+    if (fillPercentage >= 100) {
+      newTier = 100;
+      newPrice = Number(session.price_tier_100);
+    } else if (fillPercentage >= 75) {
+      newTier = 75;
+      newPrice = Number(session.price_tier_75);
+    } else if (fillPercentage >= 50) {
+      newTier = 50;
+      newPrice = Number(session.price_tier_50);
+    }
+
+    // Update session if tier changed
+    if (newTier !== session.current_tier) {
+      await prisma.group_buying_sessions.update({
+        where: { id: sessionId },
+        data: {
+          current_tier: newTier,
+          group_price: newPrice,
+          updated_at: new Date()
+        }
+      });
+
+      logger.info(`Session ${session.session_code} upgraded to tier ${newTier}%`, {
+        sessionId,
+        oldTier: session.current_tier,
+        newTier,
+        oldPrice: Number(session.group_price),
+        newPrice,
+        fillPercentage: Math.round(fillPercentage)
+      });
+
+      // TODO: Notify all participants of price drop
+      // For now, all participants benefit from tier upgrade (retroactive discount)
+      // Early joiners automatically get the better price when tier improves
+    }
+  }
+
+  /**
+   * TIERING SYSTEM: Remove bot participant when MOQ is reached
+   * Bot is removed so no order is created for it (no real payment needed)
+   */
+  private async removeBotParticipant(botParticipantId: string) {
+    const { prisma } = await import('@repo/database');
+
+    // Bot participant is removed - no order created, no payment needed
+    await prisma.group_participants.delete({
+      where: { id: botParticipantId }
+    });
+
+    logger.info(`Removed bot participant`, {
+      botParticipantId
+    });
   }
 
 }

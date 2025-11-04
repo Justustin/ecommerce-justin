@@ -25,6 +25,12 @@ export class GroupBuyingRepository {
         start_time: data.startTime || new Date(),
         end_time: data.endTime,
         estimated_completion_date: data.estimatedCompletionDate || null,
+        // TIERING SYSTEM: Add price tier fields
+        price_tier_25: data.priceTier25 || null,
+        price_tier_50: data.priceTier50 || null,
+        price_tier_75: data.priceTier75 || null,
+        price_tier_100: data.priceTier100 || null,
+        current_tier: data.currentTier || 25,
         // status defaults to 'forming' from schema
       },
       include: {

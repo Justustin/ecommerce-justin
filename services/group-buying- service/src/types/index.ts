@@ -3,12 +3,18 @@ import { group_status } from "@repo/database";
 export interface CreateGroupSessionDTO {
   productId: string;
   factoryId: string;
-  sessionCode?: string;            
+  sessionCode?: string;
   targetMoq: number;
-  groupPrice: number;               
-  startTime?: Date;                
-  endTime: Date;                     
-  estimatedCompletionDate?: Date;    
+  groupPrice: number;
+  startTime?: Date;
+  endTime: Date;
+  estimatedCompletionDate?: Date;
+  // TIERING SYSTEM: Price tiers at different MOQ fill percentages
+  priceTier25?: number;             // Price at 25% MOQ (highest)
+  priceTier50?: number;             // Price at 50% MOQ
+  priceTier75?: number;             // Price at 75% MOQ
+  priceTier100?: number;            // Price at 100% MOQ (lowest)
+  currentTier?: number;             // Current active tier: 25, 50, 75, or 100
 }
 
 export interface UpdateGroupSessionDTO {
