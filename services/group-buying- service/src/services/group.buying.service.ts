@@ -337,6 +337,18 @@ export class GroupBuyingService {
     const warehouseServiceUrl = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3011';
     const { prisma } = await import('@repo/database');
 
+    // Define type for warehouse response
+    interface WarehouseFulfillmentResult {
+      variantId: string;
+      quantity: number;
+      message: string;
+      hasStock: boolean;
+      reserved?: number;
+      inventoryId?: string;
+      purchaseOrder?: any;
+      grosirUnitsNeeded?: number;
+    }
+
     try {
       // Get all variant quantities from participants
       const participants = await prisma.group_participants.findMany({
@@ -351,7 +363,7 @@ export class GroupBuyingService {
       }, {} as Record<string, number>);
 
       const grosirUnitSize = session.products.grosir_unit_size || 12;
-      const results = [];
+      const results: WarehouseFulfillmentResult[] = [];
 
       // Call warehouse /fulfill-demand for each variant
       // Warehouse service will handle stock check and factory WhatsApp
