@@ -725,6 +725,64 @@ router.post('/:id/manual-expire', [param('id').isUUID()], controller.manualExpir
 
 /**
  * @swagger
+ * /api/group-buying/{sessionId}/variant-availability/{variantId}:
+ *   get:
+ *     tags: [Group Buying Sessions]
+ *     summary: Check variant availability for grosir allocation (DIAGNOSTIC)
+ *     description: Shows current orders, dynamic cap, and whether variant is locked
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: variantId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Variant UUID or "null" for base product
+ *     responses:
+ *       200:
+ *         description: Variant availability details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     variantId:
+ *                       type: string
+ *                     allocation:
+ *                       type: integer
+ *                     maxAllowed:
+ *                       type: integer
+ *                     totalOrdered:
+ *                       type: integer
+ *                     available:
+ *                       type: integer
+ *                     isLocked:
+ *                       type: boolean
+ *                     minOrderedAcrossVariants:
+ *                       type: integer
+ *                     ordersByVariant:
+ *                       type: object
+ *       400:
+ *         description: Bad request or variant not configured
+ */
+router.get(
+  '/:sessionId/variant-availability/:variantId',
+  [param('sessionId').isUUID(), param('variantId').notEmpty()],
+  controller.checkVariantAvailability
+);
+
+/**
+ * @swagger
  * /api/group-buying/{id}:
  *   delete:
  *     tags: [Group Buying Sessions]

@@ -203,6 +203,23 @@ export class GroupBuyingController {
     }
   };
 
+  // DIAGNOSTIC: Check variant availability without joining
+  checkVariantAvailability = async (req: Request, res: Response) => {
+    try {
+      const { sessionId, variantId } = req.params;
+      const availability = await this.service.getVariantAvailability(
+        sessionId,
+        variantId === 'null' ? null : variantId
+      );
+      res.json({
+        message: 'Variant availability retrieved',
+        data: availability
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
   deleteSession = async (req: Request, res: Response) => {
     try {
       await this.service.deleteSession(req.params.id);
