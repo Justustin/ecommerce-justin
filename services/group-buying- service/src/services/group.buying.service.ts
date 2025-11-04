@@ -305,7 +305,12 @@ export class GroupBuyingService {
 
   /**
    * Get variant availability for grosir allocation system
-   * Checks how many units of a variant can still be ordered based on 2x allocation rule
+   * DYNAMIC CAP: A variant can only be 2x allocation AHEAD of the least ordered variant
+   *
+   * Example: MOQ=12 (3S, 3M, 3L, 3XL per grosir)
+   * - Orders: 6M, 0S, 0L, 0XL
+   * - Least = 0, so M capped at 0 + (2*3) = 6 ← LOCKED
+   * - When others reach 3, M can order 3 more (up to 9)
    */
   async getVariantAvailability(sessionId: string, variantId: string | null) {
     const session = await this.repository.findById(sessionId);
@@ -313,44 +318,86 @@ export class GroupBuyingService {
       throw new Error('Session not found');
     }
 
-    // Get variant allocation from grosir_variant_allocations table
     const { prisma } = await import('@repo/database');
 
-    const allocation = await prisma.grosir_variant_allocations.findUnique({
+    // Get ALL variant allocations for this product
+    const allocations = await prisma.grosir_variant_allocations.findMany({
       where: {
-        product_id_variant_id: {
-          product_id: session.product_id,
-          variant_id: variantId || null
-        }
+        product_id: session.product_id
       }
     });
 
-    if (!allocation) {
+    if (allocations.length === 0) {
       throw new Error(
         `Variant allocation not configured for this product. ` +
         `Please contact factory to set up grosir allocations.`
       );
     }
 
-    // Count how many already ordered for this variant
-    const participants = await prisma.group_participants.findMany({
+    // Get requested variant's allocation
+    const requestedAllocation = allocations.find(
+      a => (a.variant_id || null) === (variantId || null)
+    );
+
+    if (!requestedAllocation) {
+      throw new Error(`Variant not found in grosir allocation configuration.`);
+    }
+
+    // Get ALL participants in this session (exclude bots)
+    const allParticipants = await prisma.group_participants.findMany({
       where: {
         group_session_id: sessionId,
-        variant_id: variantId
+        is_bot_participant: false  // Don't count bot in variant calculations
       }
     });
 
-    const totalOrdered = participants.reduce((sum, p) => sum + p.quantity, 0);
-    const maxAllowed = allocation.allocation_quantity * 2; // 2x rule
-    const available = maxAllowed - totalOrdered;
+    // Group orders by variant and calculate total per variant
+    const ordersByVariant: Record<string, number> = {};
+
+    for (const allocation of allocations) {
+      const variantKey = allocation.variant_id || 'null';
+      const variantOrders = allParticipants.filter(
+        p => (p.variant_id || 'null') === variantKey
+      );
+      ordersByVariant[variantKey] = variantOrders.reduce((sum, p) => sum + p.quantity, 0);
+    }
+
+    // Find minimum ordered quantity across ALL variants
+    const orderedQuantities = Object.values(ordersByVariant);
+    const minOrdered = orderedQuantities.length > 0 ? Math.min(...orderedQuantities) : 0;
+
+    // DYNAMIC CAP: min + (2 * allocation)
+    const dynamicCap = minOrdered + (2 * requestedAllocation.allocation_quantity);
+
+    // Current orders for requested variant
+    const requestedVariantKey = variantId || 'null';
+    const currentOrdered = ordersByVariant[requestedVariantKey] || 0;
+
+    // Available = dynamic cap - current ordered
+    const available = Math.max(0, dynamicCap - currentOrdered);
+
+    logger.info('Variant availability calculated', {
+      sessionId,
+      variantId,
+      allOrders: ordersByVariant,
+      minOrdered,
+      allocation: requestedAllocation.allocation_quantity,
+      dynamicCap,
+      currentOrdered,
+      available,
+      isLocked: available <= 0
+    });
 
     return {
       variantId,
-      allocation: allocation.allocation_quantity,
-      maxAllowed,
-      totalOrdered,
+      allocation: requestedAllocation.allocation_quantity,
+      maxAllowed: dynamicCap,  // This is now dynamic!
+      totalOrdered: currentOrdered,
       available,
-      isLocked: available <= 0
+      isLocked: available <= 0,
+      // Additional context for debugging
+      minOrderedAcrossVariants: minOrdered,
+      ordersByVariant
     };
   }
 
