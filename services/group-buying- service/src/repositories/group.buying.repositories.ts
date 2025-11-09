@@ -117,6 +117,13 @@ export class GroupBuyingRepository {
                 variant_name: true,
                 price_adjustment: true
               }
+            },
+            payments: {
+              select: {
+                id: true,
+                payment_status: true,
+                paid_at: true
+              }
             }
           },
           orderBy: {
@@ -166,6 +173,13 @@ export class GroupBuyingRepository {
                 first_name: true,
                 last_name: true,
                 avatar_url: true
+              }
+            },
+            payments: {
+              select: {
+                id: true,
+                payment_status: true,
+                paid_at: true
               }
             }
           },
@@ -441,19 +455,34 @@ export class GroupBuyingRepository {
   }
 
   async getParticipantStats(sessionId: string) {
-    const stats = await this.prisma.group_participants.aggregate({
+    // CRITICAL: Only count participants with PAID status
+    // Get all participants with their payment status
+    const participants = await this.prisma.group_participants.findMany({
       where: { group_session_id: sessionId },
-      _count: true,
-      _sum: {
-        quantity: true,
-        total_price: true
+      include: {
+        payments: {
+          select: {
+            payment_status: true
+          }
+        }
       }
     });
 
+    // Filter to only paid participants
+    const paidParticipants = participants.filter(p =>
+      p.payments && p.payments.length > 0 &&
+      p.payments.some((payment: any) => payment.payment_status === 'paid')
+    );
+
+    // Calculate stats only from paid participants
+    const totalQuantity = paidParticipants.reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+    const totalRevenue = paidParticipants.reduce((sum, p) => sum + Number(p.total_price || 0), 0);
+
     return {
-      participantCount: stats._count,
-      totalQuantity: stats._sum.quantity || 0,
-      totalRevenue: stats._sum.total_price || 0
+      participantCount: paidParticipants.length,  // Only PAID participants
+      totalQuantity,                               // Only from PAID participants
+      totalRevenue,                                 // Only from PAID participants
+      pendingParticipants: participants.length - paidParticipants.length
     };
   }
 
@@ -475,6 +504,14 @@ export class GroupBuyingRepository {
           select: {
             id: true,
             variant_name: true
+          }
+        },
+        payments: {
+          select: {
+            id: true,
+            payment_status: true,
+            paid_at: true,
+            payment_url: true
           }
         }
       },

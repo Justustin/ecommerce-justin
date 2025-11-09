@@ -104,28 +104,49 @@ export class GroupBuyingService {
 
     /**
      * Enrich session data with computed statistics
-     * Calculates totalQuantity by summing participant quantities
+     * CRITICAL: Only counts participants with PAID status to prevent MOQ inflation
+     *
+     * Why: Users who join but never pay should NOT be counted toward MOQ
      */
     private enrichSessionWithStats(session: any) {
-        // Calculate total quantity from all participants
-        const totalQuantity = session.group_participants?.reduce(
+        // Filter to only include participants with confirmed payment
+        // Payment status must be 'paid' or participant has at least one paid payment
+        const paidParticipants = session.group_participants?.filter((p: any) => {
+            // Check if participant has any payment with 'paid' status
+            return p.payments && p.payments.length > 0 &&
+                   p.payments.some((payment: any) => payment.payment_status === 'paid');
+        }) || [];
+
+        // Calculate total quantity ONLY from paid participants
+        const totalQuantity = paidParticipants.reduce(
             (sum: number, p: any) => sum + Number(p.quantity || 0),
             0
-        ) || 0;
+        );
 
-        // Calculate total revenue
-        const totalRevenue = session.group_participants?.reduce(
+        // Calculate total revenue ONLY from paid participants
+        const totalRevenue = paidParticipants.reduce(
             (sum: number, p: any) => sum + Number(p.total_price || 0),
             0
-        ) || 0;
+        );
+
+        // Total participant count (all)
+        const totalParticipantCount = session._count?.group_participants || 0;
+
+        // Paid participant count
+        const paidParticipantCount = paidParticipants.length;
+
+        // Pending participants (joined but not paid yet)
+        const pendingParticipantCount = totalParticipantCount - paidParticipantCount;
 
         // Return session with enhanced stats
         return {
             ...session,
             _stats: {
-                totalQuantity,
-                totalRevenue,
-                participantCount: session._count?.group_participants || 0,
+                totalQuantity,              // Only from PAID participants
+                totalRevenue,                // Only from PAID participants
+                paidParticipantCount,        // Number of people who PAID
+                pendingParticipantCount,     // Number of people who joined but NOT paid
+                totalParticipantCount,       // Total people (paid + pending)
                 moqProgress: session.target_moq > 0 ? (totalQuantity / session.target_moq) * 100 : 0,
                 moqReached: totalQuantity >= session.target_moq
             }
