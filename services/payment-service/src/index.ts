@@ -7,6 +7,7 @@ import { swaggerSpec } from './config/swagger';
 import paymentRoutes from './routes/payment.routes';
 import webhookRoutes from './routes/webhook.routes';
 import transactionRoutes from './routes/transaction.routes';
+import adminRoutes from './routes/admin.routes';
 import { PaymentRepository } from './repositories/payment.repository';
 
 dotenv.config();
@@ -58,6 +59,7 @@ app.get('/health', (req, res) => {
 app.use('/api/payments', paymentRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 Handler
 app.use((req, res) => {

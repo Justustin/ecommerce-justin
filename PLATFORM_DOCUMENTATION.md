@@ -230,30 +230,315 @@ model grosir_warehouse_tolerance {
 
 ### ✅ Implementation Status
 
-**Status:** **PRODUCTION READY** (Implemented November 9, 2025)
+**Status:** **PRODUCTION READY - END-TO-END INTEGRATION COMPLETE** (November 9, 2025)
 
 **What's been implemented:**
+
+**Phase 1: Grosir Algorithm Core**
 1. ✅ Database tables created (`grosir_bundle_config`, `grosir_warehouse_tolerance`)
 2. ✅ Prisma schema updated with new models and relations
 3. ✅ Repository methods added for CRUD operations on grosir config
 4. ✅ Service types updated with new interfaces
 5. ✅ `getVariantAvailability()` rewritten with bundle-based algorithm
-6. ✅ Migration SQL ready for deployment
+6. ✅ Migration SQL ready for deployment (002, 003)
+7. ✅ Deprecated `grosir_variant_allocations` table removed
+
+**Phase 2: Warehouse Integration** ⭐ NEW
+8. ✅ Warehouse service `fulfillBundleDemand()` implemented
+9. ✅ Group-buying service updated to call bundle-based warehouse endpoint
+10. ✅ Bundle-based PO creation with warehouse tolerance checking
+11. ✅ WhatsApp factory notifications with bundle breakdown
+12. ✅ Comprehensive logging for debugging and monitoring
+
+**Phase 3: Admin Endpoints**
+13. ✅ Admin endpoints for grosir configuration (10 endpoints)
+14. ✅ Admin endpoints for Product Service (15 endpoints)
+15. ✅ Admin endpoints for Warehouse Service (11 endpoints)
+16. ✅ Admin endpoints for Factory Service (10 endpoints)
+17. ✅ ADMIN_ENDPOINTS_README.md comprehensive guide
+
+**End-to-End Flow:**
+```
+1. Admin configures bundle → /api/admin/grosir/configure-product
+2. User joins session → getVariantAvailability() checks bundles
+3. Session expires (MOQ reached) → fulfillWarehouseDemand() called
+4. Warehouse processes ALL variants → fulfillBundleDemand()
+5. Warehouse checks tolerance → Orders complete bundles
+6. Factory receives WhatsApp → Bundle composition detailed
+7. Admin tracks PO → Warehouse admin endpoints
+```
 
 **Next steps for deployment:**
-1. Run migration: `002_add_grosir_bundle_tolerance_tables.sql`
-2. Generate Prisma client: `pnpm db:generate`
-3. Configure bundle config and warehouse tolerance for each product via admin panel
-4. Test with sample group buying sessions
-5. Monitor logs for variant availability calculations
+1. ✅ Run migration: `002_add_grosir_bundle_tolerance_tables.sql`
+2. ✅ Run migration: `003_drop_deprecated_grosir_allocations.sql`
+3. Generate Prisma client: `pnpm db:generate`
+4. Configure bundle config and warehouse tolerance for each product via admin panel
+5. Test with sample group buying sessions
+6. Monitor logs for variant availability and warehouse fulfillment
 
 **Testing checklist:**
-- [ ] Add bundle config for test product (e.g., 2S + 5M + 4L + 1XL)
-- [ ] Add warehouse tolerance for test product (e.g., XL max_excess=30)
+- [ ] Configure bundle via admin endpoint (e.g., 2S + 5M + 4L + 1XL)
+- [ ] Configure warehouse tolerance via admin endpoint (e.g., XL max_excess=30)
+- [ ] Create test product with variants via admin endpoint
 - [ ] Create group buying session
 - [ ] Test variant availability API endpoint
-- [ ] Verify constraining variant logic when tolerance exceeded
-- [ ] Test full session flow from join → MOQ → order creation
+- [ ] Join session with multiple variants
+- [ ] Trigger session expiration (manual expire endpoint)
+- [ ] Verify warehouse fulfillment logs
+- [ ] Check PO created with correct bundle calculation
+- [ ] Verify WhatsApp sent to factory
+- [ ] Test constraining variant logic when tolerance exceeded
+- [ ] Test full session flow from join → MOQ → order creation → warehouse → factory
+
+---
+
+## Warehouse Service Integration
+
+### Overview
+
+The warehouse service has been fully integrated with the bundle-based grosir allocation system. It handles inventory management, stock reservation, and factory purchase order creation while respecting bundle constraints and warehouse tolerance limits.
+
+### New Endpoint: `/api/warehouse/fulfill-bundle-demand`
+
+**Purpose:** Process demand from completed group buying sessions using bundle-based allocation.
+
+**Request:**
+```json
+POST /api/warehouse/fulfill-bundle-demand
+{
+  "productId": "uuid",
+  "sessionId": "uuid",
+  "variantDemands": [
+    { "variantId": "s-uuid", "quantity": 20 },
+    { "variantId": "m-uuid", "quantity": 38 },
+    { "variantId": "l-uuid", "quantity": 25 },
+    { "variantId": "xl-uuid", "quantity": 5 }
+  ]
+}
+```
+
+**Algorithm Flow:**
+1. Fetch bundle configuration for product (e.g., 2S + 5M + 4L + 1XL per bundle)
+2. Fetch warehouse tolerance for each variant (max excess allowed)
+3. Check current inventory for all variants
+4. Calculate bundles needed per variant: `ceil(netDemand / unitsPerBundle)`
+5. Find maximum bundles needed across all variants
+6. Calculate excess for each variant if producing max bundles
+7. Check if any variant exceeds warehouse tolerance
+8. If yes: Constrain to max allowed bundles (constraining variant identified)
+9. If all variants have stock: Reserve inventory
+10. If stock insufficient: Create ONE purchase order for complete bundles
+11. Send WhatsApp to factory with bundle breakdown
+12. Return inventory projections
+
+**Example Calculation:**
+```
+Bundle Config: 2S + 5M + 4L + 1XL = 12 units/bundle
+Warehouse Tolerance: S=20, M=50, L=40, XL=30 max excess
+Current Inventory: S=0, M=10, L=0, XL=2
+Demand: S=20, M=38, L=25, XL=5
+
+Step 1: Net demand after inventory
+S: 20-0=20, M: 38-10=28, L: 25-0=25, XL: 5-2=3
+
+Step 2: Bundles needed per variant
+S: ceil(20/2)=10, M: ceil(28/5)=6, L: ceil(25/4)=7, XL: ceil(3/1)=3
+
+Step 3: Max bundles needed
+max(10,6,7,3) = 10 bundles
+
+Step 4: Production if 10 bundles
+S: 10*2=20, M: 10*5=50, L: 10*4=40, XL: 10*1=10
+
+Step 5: Excess calculation
+S: 20-20=0 ✅ (≤20 tolerance)
+M: 50-38=12 ✅ (≤50 tolerance)
+L: 40-25=15 ✅ (≤40 tolerance)
+XL: 10-5=5 ✅ (≤30 tolerance)
+
+Step 6: All tolerances OK, order 10 bundles
+Total units: 10 bundles * 12 units = 120 units
+```
+
+**Response (Stock Available):**
+```json
+{
+  "success": true,
+  "message": "All demand fulfilled from existing stock",
+  "hasStock": true,
+  "bundlesOrdered": 0,
+  "variantsReserved": [
+    { "variantId": "s-uuid", "quantity": 20, "reserved": true },
+    { "variantId": "m-uuid", "quantity": 38, "reserved": true }
+  ]
+}
+```
+
+**Response (PO Created):**
+```json
+{
+  "success": true,
+  "message": "Purchase order created for 10 factory bundles",
+  "hasStock": false,
+  "bundlesOrdered": 10,
+  "totalUnitsOrdered": 120,
+  "constrainingVariant": null,
+  "purchaseOrder": {
+    "id": "po-uuid",
+    "po_number": "PO-20251109-ABC12",
+    "quantity": 120,
+    "total_cost": 12500000
+  },
+  "inventoryAdditions": [
+    { "variantId": "s-uuid", "willReceive": 20, "demand": 20, "excess": 0 },
+    { "variantId": "m-uuid", "willReceive": 50, "demand": 38, "excess": 12 },
+    { "variantId": "l-uuid", "willReceive": 40, "demand": 25, "excess": 15 },
+    { "variantId": "xl-uuid", "willReceive": 10, "demand": 5, "excess": 5 }
+  ]
+}
+```
+
+### WhatsApp Factory Notification
+
+When a purchase order is created, the factory receives a WhatsApp message:
+
+```
+🏭 *New Bundle Purchase Order - PT Garmen Indonesia*
+
+*PO Number:* PO-20251109-ABC12
+*Product:* Premium Hoodie
+
+*Bundle Order:*
+10 complete bundles
+Each bundle contains: 2 units of S, 5 units of M, 4 units of L, 1 unit of XL
+
+*Total Units:* 120
+*Total Value:* Rp 12,500,000
+
+*Delivery Address:*
+Laku Warehouse, Jl. Warehouse No. 123, Jakarta 13910
+
+Please prepare and send to Laku Warehouse.
+
+Thank you!
+```
+
+### Warehouse Tolerance Constraints
+
+If warehouse tolerance is exceeded, bundles are constrained:
+
+```
+Example:
+Bundle: 2S + 5M + 4L + 1XL
+Demand: S=40, M=80, L=60, XL=15
+Tolerance: S=20, M=50, L=40, XL=10
+
+Bundles needed: S=20, M=16, L=15, XL=15 → Max=20 bundles
+
+If 20 bundles produced:
+S: 40 units, excess=0 ✅
+M: 100 units, excess=20 ✅
+L: 80 units, excess=20 ✅
+XL: 20 units, excess=5 ✅
+
+All OK, order 20 bundles.
+
+But if XL tolerance was only 3:
+XL: 20 units, excess=5 ❌ (exceeds 3)
+Max allowed for XL: 15+3=18 units
+Max bundles for XL: floor(18/1)=18 bundles
+
+Constrained to 18 bundles due to XL tolerance!
+```
+
+### Comprehensive Logging
+
+The warehouse service provides detailed logs:
+
+```
+========================================
+Bundle-based demand fulfillment for product xxx
+Session: yyy
+Variant demands: [S:20, M:38, L:25, XL:5]
+========================================
+
+Bundle configs: [S:2, M:5, L:4, XL:1 units per bundle]
+Warehouse tolerances: [S:20, M:50, L:40, XL:30 max excess]
+
+Current inventory:
+- S: available=0, reserved=0
+- M: available=10, reserved=0
+- L: available=0, reserved=0
+- XL: available=2, reserved=0
+
+Bundles needed per variant: [S:10, M:6, L:7, XL:3]
+Maximum bundles needed: 10
+
+Variant S: will produce 20, demand 20, excess 0, tolerance 20 ✅
+Variant M: will produce 50, demand 38, excess 12, tolerance 50 ✅
+Variant L: will produce 40, demand 25, excess 15, tolerance 40 ✅
+Variant XL: will produce 10, demand 5, excess 5, tolerance 30 ✅
+
+📦 Final decision: Order 10 bundles from factory
+
+✅ Created Purchase Order PO-20251109-ABC12
+   Total units: 120 (10 bundles x 12 units/bundle)
+   Total cost: Rp 12,500,000
+
+✅ WhatsApp sent to factory PT Garmen (08123456789)
+
+📊 Inventory when PO arrives:
+- S: will receive 20, demand 20, excess 0
+- M: will receive 50, demand 38, excess 12
+- L: will receive 40, demand 25, excess 15
+- XL: will receive 10, demand 5, excess 5
+========================================
+```
+
+### Integration with Group Buying Service
+
+When a group buying session reaches MOQ and expires, the group-buying service calls warehouse:
+
+```typescript
+// group-buying-service/src/services/group.buying.service.ts
+
+async fulfillWarehouseDemand(sessionId: string) {
+  // Get all participants and group by variant
+  const variantDemands = [
+    { variantId: 's-uuid', quantity: 20 },
+    { variantId: 'm-uuid', quantity: 38 },
+    // ...
+  ];
+
+  // Call warehouse with ALL variants at once
+  const response = await axios.post(
+    '/api/warehouse/fulfill-bundle-demand',
+    {
+      productId: session.product_id,
+      sessionId,
+      variantDemands
+    }
+  );
+
+  // Update session with results
+  await updateSession({
+    warehouse_has_stock: response.data.hasStock,
+    grosir_units_needed: response.data.bundlesOrdered,
+    factory_whatsapp_sent: !response.data.hasStock
+  });
+}
+```
+
+### Key Benefits
+
+1. **Correct Bundle Handling:** Processes all variants together, not separately
+2. **Warehouse Waste Prevention:** Respects tolerance limits per variant
+3. **Single PO:** Creates one purchase order for complete bundles
+4. **Clear Factory Communication:** WhatsApp shows exact bundle composition
+5. **Inventory Visibility:** Returns projections of what warehouse will receive
+6. **Constraining Variant Tracking:** Identifies which variant limits the order
+7. **Comprehensive Logging:** Detailed logs for debugging and monitoring
+8. **Error Handling:** Validates bundle config exists before processing
 
 ---
 

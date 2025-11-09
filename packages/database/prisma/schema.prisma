@@ -378,6 +378,7 @@ model payments {
   metadata               Json?
   wallet_amount          Decimal?               @default(0.00) @db.Decimal(15, 2)
   xendit_amount          Decimal?               @default(0.00) @db.Decimal(15, 2)
+  admin_note             String?
   group_buying_sessions  group_buying_sessions? @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_group_session")
   group_participants     group_participants?    @relation(fields: [participant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_participant")
   orders                 orders?                @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -569,6 +570,7 @@ model refunds {
   completed_at                     DateTime?            @db.Timestamptz(6)
   created_at                       DateTime             @default(now()) @db.Timestamptz(6)
   updated_at                       DateTime             @default(now()) @db.Timestamptz(6)
+  admin_note                       String?
   users_refunds_approved_byTousers users?               @relation("refunds_approved_byTousers", fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   orders                           orders               @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payments                         payments             @relation(fields: [payment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
