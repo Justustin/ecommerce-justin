@@ -134,7 +134,7 @@ export class GroupBuyingService {
         if(!session) {
             throw new Error('Session not found')
         }
-        if(session.status !== 'forming' && session.status !== 'active') {
+        if(session.status !== 'forming') {
             throw new Error('Cannot join this session. Session is no longer accepting participants')
         }
         if(session.end_time <= new Date()) {
@@ -730,7 +730,7 @@ export class GroupBuyingService {
       return;
     }
 
-    if (session.status !== 'forming' && session.status !== 'active') {
+    if (session.status !== 'forming') {
       return;
     }
 

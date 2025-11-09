@@ -206,7 +206,7 @@ export class GroupBuyingRepository {
         gt: new Date()
       };
       where.status = {
-        in: ['forming', 'active', 'moq_reached']
+        in: ['forming', 'moq_reached']
       };
     }
 
@@ -324,7 +324,7 @@ export class GroupBuyingRepository {
   }
 
 
-  async updateStatus(id: string, status: 'forming' | 'active' | 'moq_reached' | 'success' | 'failed' | 'cancelled' | 'pending_stock' | 'stock_received') {
+  async updateStatus(id: string, status: 'forming' | 'moq_reached' | 'success' | 'failed' | 'cancelled' | 'pending_stock' | 'stock_received') {
     const updateData: any = {
       status,
       updated_at: new Date()
@@ -491,7 +491,7 @@ export class GroupBuyingRepository {
           lte: new Date()
         },
         status: {
-          in: ['forming', 'active', 'moq_reached'] // Only get unprocessed sessions
+          in: ['forming', 'moq_reached'] // Only get unprocessed sessions
         }
       },
       include: {
@@ -517,12 +517,10 @@ export class GroupBuyingRepository {
   }
 
   async findSessionsReachingMoq() {
-    // Get all forming/active sessions that haven't been marked as moq_reached
+    // Get all forming sessions that haven't been marked as moq_reached
     const sessions = await this.prisma.group_buying_sessions.findMany({
       where: {
-        status: {
-          in: ['forming', 'active']
-        },
+        status: 'forming',
         moq_reached_at: null
       },
       include: {

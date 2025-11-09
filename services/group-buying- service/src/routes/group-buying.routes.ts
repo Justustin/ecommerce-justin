@@ -152,7 +152,7 @@ router.post(
  *         name: status
  *         schema:
  *           type: string
- *           enum: [forming, active, moq_reached, success, failed, cancelled]
+ *           enum: [forming, moq_reached, success, failed, cancelled]
  *       - in: query
  *         name: factoryId
  *         schema:
@@ -296,7 +296,7 @@ router.get('/code/:code', controller.getSessionByCode);
  *                 minimum: 0.01
  *               status:
  *                 type: string
- *                 enum: [forming, active, moq_reached, success, failed, cancelled]
+ *                 enum: [forming, moq_reached, success, failed, cancelled]
  *               targetMoq:
  *                 type: integer
  *                 minimum: 2
@@ -307,7 +307,7 @@ router.get('/code/:code', controller.getSessionByCode);
  *             example:
  *               endTime: "2025-10-07T19:00:00.000Z"
  *               groupPrice: 100000
- *               status: "active"
+ *               status: "forming"
  *               targetMoq: 120
  *               estimatedCompletionDate: "2025-10-15T00:00:00.000Z"
  *     responses:
@@ -414,7 +414,7 @@ router.post(
     body('quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
     body('unitPrice').isFloat({ min: 0.01 }).withMessage('Unit price must be greater than 0'),
     body('totalPrice').isFloat({ min: 0.01 }).withMessage('Total price must be greater than 0'),
-    body('variantId').optional().isUUID(),
+    body('variantId').optional({ nullable: true }).isUUID(),
   ],
   controller.joinSession
 );
@@ -876,7 +876,7 @@ export default router;
  *           description: Estimated production completion date
  *         status:
  *           type: string
- *           enum: [forming, active, moq_reached, pending_stock, stock_received, success, failed, cancelled]
+ *           enum: [forming, moq_reached, pending_stock, stock_received, success, failed, cancelled]
  *           description: Session status
  *     Participant:
  *       type: object

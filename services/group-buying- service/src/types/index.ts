@@ -35,11 +35,11 @@ export interface JoinGroupDTO {
 }
 
 export interface GroupSessionFilters {
-  status?: 'forming' | 'active' | 'moq_reached' | 'success' | 'failed' | 'cancelled';
+  status?: 'forming' | 'moq_reached' | 'success' | 'failed' | 'cancelled';
   factoryId?: string;
   productId?: string;
-  activeOnly?: boolean;             
-  search?: string;                  
+  activeOnly?: boolean;
+  search?: string;
   page?: number;
   limit?: number;
 }
