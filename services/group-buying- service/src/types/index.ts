@@ -59,3 +59,73 @@ export interface ParticipantStats {
   totalQuantity: number;
   totalRevenue: number;
 }
+
+// ============================================================================
+// NEW: Grosir Bundle-Based Allocation System
+// ============================================================================
+
+export interface GrosirBundleConfig {
+  id: string;
+  productId: string;
+  variantId: string | null;
+  unitsPerBundle: number;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface GrosirWarehouseTolerance {
+  id: string;
+  productId: string;
+  variantId: string | null;
+  maxExcessUnits: number;
+  clearanceRateEstimate: number | null;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface VariantAvailabilityResult {
+  variantId: string | null;
+  unitsPerBundle: number;
+  maxExcessUnits: number;
+  currentOrdered: number;
+  totalOrderedAllVariants: number;
+  bundlesNeeded: number;
+  maxBundlesAllowed: number;
+  maxCanOrder: number;
+  available: number;
+  isLocked: boolean;
+  constrainingVariant: string | null;
+  excessIfOrdered: Record<string, number>;  // Excess per variant if order is placed
+  moqProgress: number;  // Percentage of MOQ filled (0-100)
+}
+
+export interface BundleConstraintInfo {
+  variantId: string | null;
+  currentOrdered: number;
+  bundlesNeeded: number;
+  willProduce: number;
+  excess: number;
+  exceedsTolerance: boolean;
+}
+
+// Request DTOs for admin configuration
+export interface CreateBundleConfigDTO {
+  productId: string;
+  variants: Array<{
+    variantId: string | null;  // null for base product
+    unitsPerBundle: number;
+    notes?: string;
+  }>;
+}
+
+export interface CreateWarehouseToleranceDTO {
+  productId: string;
+  variants: Array<{
+    variantId: string | null;
+    maxExcessUnits: number;
+    clearanceRateEstimate?: number;
+    notes?: string;
+  }>;
+}

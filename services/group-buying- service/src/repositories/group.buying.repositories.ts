@@ -555,4 +555,142 @@ export class GroupBuyingRepository {
     }
   });
 }
+
+  // ========================================================================
+  // NEW: Grosir Bundle-Based Allocation System
+  // ========================================================================
+
+  /**
+   * Get factory bundle configuration for a product
+   * Returns how many units of each variant come in one factory bundle
+   */
+  async getBundleConfig(productId: string) {
+    return this.prisma.grosir_bundle_config.findMany({
+      where: { product_id: productId },
+      orderBy: { variant_id: 'asc' }
+    });
+  }
+
+  /**
+   * Get warehouse tolerance configuration for a product
+   * Returns max excess units acceptable for each variant
+   */
+  async getWarehouseTolerance(productId: string) {
+    return this.prisma.grosir_warehouse_tolerance.findMany({
+      where: { product_id: productId },
+      orderBy: { variant_id: 'asc' }
+    });
+  }
+
+  /**
+   * Get both bundle config and warehouse tolerance for a product
+   * Used by variant availability calculation
+   */
+  async getGrosirConfig(productId: string) {
+    const [bundleConfig, warehouseTolerance] = await Promise.all([
+      this.getBundleConfig(productId),
+      this.getWarehouseTolerance(productId)
+    ]);
+
+    return {
+      bundleConfig,
+      warehouseTolerance
+    };
+  }
+
+  /**
+   * Create bundle configuration for a product
+   * Admin use only - defines factory bundle composition
+   */
+  async createBundleConfig(data: {
+    productId: string;
+    variantId: string | null;
+    unitsPerBundle: number;
+    notes?: string;
+  }) {
+    return this.prisma.grosir_bundle_config.create({
+      data: {
+        product_id: data.productId,
+        variant_id: data.variantId,
+        units_per_bundle: data.unitsPerBundle,
+        notes: data.notes || null
+      }
+    });
+  }
+
+  /**
+   * Create warehouse tolerance for a product
+   * Admin use only - defines max excess acceptable
+   */
+  async createWarehouseTolerance(data: {
+    productId: string;
+    variantId: string | null;
+    maxExcessUnits: number;
+    clearanceRateEstimate?: number;
+    notes?: string;
+  }) {
+    return this.prisma.grosir_warehouse_tolerance.create({
+      data: {
+        product_id: data.productId,
+        variant_id: data.variantId,
+        max_excess_units: data.maxExcessUnits,
+        clearance_rate_estimate: data.clearanceRateEstimate || null,
+        notes: data.notes || null
+      }
+    });
+  }
+
+  /**
+   * Update bundle configuration
+   */
+  async updateBundleConfig(id: string, data: {
+    unitsPerBundle?: number;
+    notes?: string;
+  }) {
+    return this.prisma.grosir_bundle_config.update({
+      where: { id },
+      data: {
+        units_per_bundle: data.unitsPerBundle,
+        notes: data.notes,
+        updated_at: new Date()
+      }
+    });
+  }
+
+  /**
+   * Update warehouse tolerance
+   */
+  async updateWarehouseTolerance(id: string, data: {
+    maxExcessUnits?: number;
+    clearanceRateEstimate?: number;
+    notes?: string;
+  }) {
+    return this.prisma.grosir_warehouse_tolerance.update({
+      where: { id },
+      data: {
+        max_excess_units: data.maxExcessUnits,
+        clearance_rate_estimate: data.clearanceRateEstimate,
+        notes: data.notes,
+        updated_at: new Date()
+      }
+    });
+  }
+
+  /**
+   * Delete bundle config for a product
+   */
+  async deleteBundleConfig(productId: string) {
+    return this.prisma.grosir_bundle_config.deleteMany({
+      where: { product_id: productId }
+    });
+  }
+
+  /**
+   * Delete warehouse tolerance for a product
+   */
+  async deleteWarehouseTolerance(productId: string) {
+    return this.prisma.grosir_warehouse_tolerance.deleteMany({
+      where: { product_id: productId }
+    });
+  }
 }

@@ -324,13 +324,27 @@ export class GroupBuyingService {
   }
 
   /**
-   * Get variant availability for grosir allocation system
-   * DYNAMIC CAP: A variant can only be 2x allocation AHEAD of the least ordered variant
+   * NEW: Get variant availability using bundle-based warehouse tolerance
    *
-   * Example: MOQ=12 (3S, 3M, 3L, 3XL per grosir)
-   * - Orders: 6M, 0S, 0L, 0XL
-   * - Least = 0, so M capped at 0 + (2*3) = 6 ← LOCKED
-   * - When others reach 3, M can order 3 more (up to 9)
+   * KEY CONCEPT: Control how many bundles to buy by monitoring warehouse excess
+   *
+   * Algorithm:
+   * 1. Calculate bundles needed for each variant (ceil(ordered / bundle_size))
+   * 2. Find highest bundle need (what factory must produce)
+   * 3. Calculate excess per variant if we produce that many bundles
+   * 4. Check which variant would violate warehouse tolerance
+   * 5. Constrain max bundles based on tolerance limits
+   *
+   * Example:
+   * Bundle: 2S + 5M + 4L + 1XL (12 units total)
+   * Orders: M=38, L=25, S=20, XL=5
+   * Warehouse tolerance: XL max_excess=30
+   *
+   * M needs: ceil(38/5) = 8 bundles ← HIGHEST
+   * If we produce 8 bundles: 16S, 40M, 32L, 8XL
+   * XL excess: 8 - 5 = 3 ≤ 30 ✅ OK
+   *
+   * All variants can continue ordering!
    */
   async getVariantAvailability(sessionId: string, variantId: string | null) {
     const session = await this.repository.findById(sessionId);
@@ -340,84 +354,152 @@ export class GroupBuyingService {
 
     const { prisma } = await import('@repo/database');
 
-    // Get ALL variant allocations for this product
-    const allocations = await prisma.grosir_variant_allocations.findMany({
-      where: {
-        product_id: session.product_id
-      }
-    });
+    // Step 1: Get factory bundle configuration and warehouse tolerance
+    const [bundleConfigs, warehouseTolerances] = await Promise.all([
+      this.repository.getBundleConfig(session.product_id),
+      this.repository.getWarehouseTolerance(session.product_id)
+    ]);
 
-    if (allocations.length === 0) {
+    if (bundleConfigs.length === 0) {
       throw new Error(
-        `Variant allocation not configured for this product. ` +
-        `Please contact factory to set up grosir allocations.`
+        `Bundle configuration not set for this product. ` +
+        `Please configure factory bundle composition in admin panel.`
       );
     }
 
-    // Get requested variant's allocation
-    const requestedAllocation = allocations.find(
-      a => (a.variant_id || null) === (variantId || null)
-    );
-
-    if (!requestedAllocation) {
-      throw new Error(`Variant not found in grosir allocation configuration.`);
+    if (warehouseTolerances.length === 0) {
+      throw new Error(
+        `Warehouse tolerance not set for this product. ` +
+        `Please configure warehouse limits in admin panel.`
+      );
     }
 
-    // Get ALL participants in this session (exclude bots)
+    // Find requested variant's config
+    const requestedBundle = bundleConfigs.find(
+      b => (b.variant_id || null) === (variantId || null)
+    );
+
+    const requestedTolerance = warehouseTolerances.find(
+      t => (t.variant_id || null) === (variantId || null)
+    );
+
+    if (!requestedBundle) {
+      throw new Error(`Bundle config not found for variant ${variantId}`);
+    }
+
+    if (!requestedTolerance) {
+      throw new Error(`Warehouse tolerance not found for variant ${variantId}`);
+    }
+
+    // Step 2: Get current orders for ALL variants (exclude bots)
     const allParticipants = await prisma.group_participants.findMany({
       where: {
         group_session_id: sessionId,
-        is_bot_participant: false  // Don't count bot in variant calculations
+        is_bot_participant: false
       }
     });
 
-    // Group orders by variant and calculate total per variant
+    // Build map of current orders by variant
     const ordersByVariant: Record<string, number> = {};
+    let totalOrderedAllVariants = 0;
 
-    for (const allocation of allocations) {
-      const variantKey = allocation.variant_id || 'null';
+    for (const bundle of bundleConfigs) {
+      const variantKey = bundle.variant_id || 'null';
       const variantOrders = allParticipants.filter(
         p => (p.variant_id || 'null') === variantKey
       );
-      ordersByVariant[variantKey] = variantOrders.reduce((sum, p) => sum + p.quantity, 0);
+      const ordered = variantOrders.reduce((sum, p) => sum + p.quantity, 0);
+      ordersByVariant[variantKey] = ordered;
+      totalOrderedAllVariants += ordered;
     }
 
-    // Find minimum ordered quantity across ALL variants
-    const orderedQuantities = Object.values(ordersByVariant);
-    const minOrdered = orderedQuantities.length > 0 ? Math.min(...orderedQuantities) : 0;
-
-    // DYNAMIC CAP: min + (2 * allocation)
-    const dynamicCap = minOrdered + (2 * requestedAllocation.allocation_quantity);
-
-    // Current orders for requested variant
     const requestedVariantKey = variantId || 'null';
     const currentOrdered = ordersByVariant[requestedVariantKey] || 0;
 
-    // Available = dynamic cap - current ordered
-    const available = Math.max(0, dynamicCap - currentOrdered);
+    // Step 3: Calculate bundles needed for each variant
+    const bundlesNeeded: Record<string, number> = {};
 
-    logger.info('Variant availability calculated', {
+    for (const bundle of bundleConfigs) {
+      const variantKey = bundle.variant_id || 'null';
+      const ordered = ordersByVariant[variantKey] || 0;
+      bundlesNeeded[variantKey] = Math.ceil(ordered / bundle.units_per_bundle);
+    }
+
+    // Step 4: Find maximum bundles needed (what factory must produce)
+    const maxBundlesNeeded = Math.max(...Object.values(bundlesNeeded), 0);
+
+    // Step 5: Calculate excess for each variant if we produce maxBundlesNeeded
+    const excessByVariant: Record<string, number> = {};
+    let maxBundlesAllowed = maxBundlesNeeded;
+    let constrainingVariant: string | null = null;
+
+    for (const bundle of bundleConfigs) {
+      const variantKey = bundle.variant_id || 'null';
+      const tolerance = warehouseTolerances.find(
+        t => (t.variant_id || 'null') === (bundle.variant_id || null)
+      );
+
+      if (!tolerance) continue;
+
+      const willProduce = maxBundlesNeeded * bundle.units_per_bundle;
+      const ordered = ordersByVariant[variantKey] || 0;
+      const excess = willProduce - ordered;
+
+      excessByVariant[variantKey] = excess;
+
+      // Check if this variant violates tolerance
+      if (excess > tolerance.max_excess_units) {
+        // Calculate max bundles allowed by this constraint
+        const maxAllowedForThisVariant = ordered + tolerance.max_excess_units;
+        const bundlesAllowed = Math.floor(maxAllowedForThisVariant / bundle.units_per_bundle);
+
+        if (bundlesAllowed < maxBundlesAllowed) {
+          maxBundlesAllowed = bundlesAllowed;
+          constrainingVariant = variantKey;
+        }
+      }
+    }
+
+    // Step 6: Calculate available units for requested variant
+    const maxCanProduce = maxBundlesAllowed * requestedBundle.units_per_bundle;
+    const available = Math.max(0, maxCanProduce - currentOrdered);
+
+    const moqProgress = session.target_moq > 0
+      ? Math.round((totalOrderedAllVariants / session.target_moq) * 100)
+      : 0;
+
+    logger.info('Variant availability calculated (bundle-based)', {
       sessionId,
       variantId,
-      allOrders: ordersByVariant,
-      minOrdered,
-      allocation: requestedAllocation.allocation_quantity,
-      dynamicCap,
+      algorithm: 'bundle_warehouse_tolerance',
+      bundleSize: requestedBundle.units_per_bundle,
+      warehouseTolerance: requestedTolerance.max_excess_units,
       currentOrdered,
+      maxBundlesNeeded,
+      maxBundlesAllowed,
+      maxCanProduce,
       available,
-      isLocked: available <= 0
+      isLocked: available <= 0,
+      constrainingVariant,
+      ordersByVariant,
+      excessByVariant,
+      moqProgress: `${moqProgress}%`
     });
 
     return {
       variantId,
-      allocation: requestedAllocation.allocation_quantity,
-      maxAllowed: dynamicCap,  // This is now dynamic!
-      totalOrdered: currentOrdered,
+      unitsPerBundle: requestedBundle.units_per_bundle,
+      maxExcessUnits: requestedTolerance.max_excess_units,
+      currentOrdered,
+      totalOrderedAllVariants,
+      bundlesNeeded: bundlesNeeded[requestedVariantKey] || 0,
+      maxBundlesAllowed,
+      maxCanOrder: maxCanProduce,
       available,
       isLocked: available <= 0,
-      // Additional context for debugging
-      minOrderedAcrossVariants: minOrdered,
-      ordersByVariant
+      constrainingVariant,
+      excessIfOrdered: excessByVariant,
+      moqProgress
     };
   }
 
