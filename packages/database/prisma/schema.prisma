@@ -8,37 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model agent_offices {
-  id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  office_code                String                       @unique @db.VarChar(20)
-  office_name                String                       @db.VarChar(255)
-  status                     office_status                @default(active)
-  province                   String                       @db.VarChar(100)
-  city                       String                       @db.VarChar(100)
-  district                   String?                      @db.VarChar(100)
-  address_line               String
-  postal_code                String?                      @db.VarChar(10)
-  location                   Unsupported("geography")?
-  phone_number               String                       @db.VarChar(20)
-  email                      String?                      @db.VarChar(255)
-  whatsapp_number            String?                      @db.VarChar(20)
-  operating_hours            Json?
-  manager_user_id            String?                      @db.Uuid
-  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
-  users                      users?                       @relation(fields: [manager_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  factories                  factories[]
-  factory_staff_interactions factory_staff_interactions[]
-  office_reviews             office_reviews[]
-  office_staff               office_staff[]
-  pickup_tasks               pickup_tasks[]
-
-  @@index([office_code], map: "idx_agent_offices_code")
-  @@index([province, city], map: "idx_agent_offices_province_city")
-  @@index([status], map: "idx_agent_offices_status")
-}
-
 model app_settings {
   key         String   @id @db.VarChar(100)
   value       String
@@ -47,7 +16,7 @@ model app_settings {
 }
 
 model audit_logs {
-  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id            String   @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   user_id       String?  @db.Uuid
   action        String   @db.VarChar(100)
   resource_type String   @db.VarChar(50)
@@ -64,7 +33,7 @@ model audit_logs {
 }
 
 model categories {
-  id               String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id               String       @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   parent_id        String?      @db.Uuid
   name             String       @db.VarChar(255)
   slug             String       @unique @db.VarChar(255)
@@ -83,7 +52,7 @@ model categories {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model event_log {
-  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id              String    @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   event_type      String    @db.VarChar(100)
   aggregate_type  String    @db.VarChar(50)
   aggregate_id    String    @db.Uuid
@@ -102,46 +71,43 @@ model event_log {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model factories {
-  id                                 String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  owner_id                           String                       @db.Uuid
-  office_id                          String?                      @db.Uuid
-  factory_code                       String                       @unique @db.VarChar(20)
-  factory_name                       String                       @db.VarChar(255)
-  status                             factory_status               @default(pending)
-  verification_status                verification_status          @default(unverified)
-  business_license_number            String?                      @unique @db.VarChar(50)
+  id                                 String                      @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  owner_id                           String                      @db.Uuid
+  office_id                          String?                     @db.Uuid
+  factory_code                       String                      @unique @db.VarChar(20)
+  factory_name                       String                      @db.VarChar(255)
+  status                             factory_status              @default(pending)
+  verification_status                verification_status         @default(unverified)
+  business_license_number            String?                     @unique @db.VarChar(50)
   business_license_photo_url         String?
-  tax_id                             String?                      @db.VarChar(50)
-  phone_number                       String                       @db.VarChar(20)
-  email                              String?                      @db.VarChar(255)
-  province                           String                       @db.VarChar(100)
-  city                               String                       @db.VarChar(100)
-  district                           String                       @db.VarChar(100)
-  postal_code                        String?                      @db.VarChar(10)
+  tax_id                             String?                     @db.VarChar(50)
+  phone_number                       String                      @db.VarChar(20)
+  email                              String?                     @db.VarChar(255)
+  province                           String                      @db.VarChar(100)
+  city                               String                      @db.VarChar(100)
+  district                           String                      @db.VarChar(100)
+  postal_code                        String?                     @db.VarChar(10)
   address_line                       String
   logo_url                           String?
   description                        String?
-  assigned_at                        DateTime?                    @db.Timestamptz(6)
-  verified_at                        DateTime?                    @db.Timestamptz(6)
-  verified_by                        String?                      @db.Uuid
-  created_at                         DateTime                     @default(now()) @db.Timestamptz(6)
-  updated_at                         DateTime                     @default(now()) @db.Timestamptz(6)
-  bank_name                          String?                      @db.VarChar(100)
-  bank_account_number                String?                      @db.VarChar(50)
-  bank_account_name                  String?                      @db.VarChar(255)
-  agent_offices                      agent_offices?               @relation(fields: [office_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users_factories_owner_idTousers    users                        @relation("factories_owner_idTousers", fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users_factories_verified_byTousers users?                       @relation("factories_verified_byTousers", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  assigned_at                        DateTime?                   @db.Timestamptz(6)
+  verified_at                        DateTime?                   @db.Timestamptz(6)
+  verified_by                        String?                     @db.Uuid
+  created_at                         DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime                    @default(now()) @db.Timestamptz(6)
+  bank_name                          String?                     @db.VarChar(100)
+  bank_account_number                String?                     @db.VarChar(50)
+  bank_account_name                  String?                     @db.VarChar(255)
+  wholesale_unit                     Int?                        @default(1)
+  users_factories_owner_idTousers    users                       @relation("factories_owner_idTousers", fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_factories_verified_byTousers users?                      @relation("factories_verified_byTousers", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factory_reviews                    factory_reviews[]
   factory_settlements                factory_settlements[]
-  factory_staff_interactions         factory_staff_interactions[]
   group_buying_sessions              group_buying_sessions[]
-  office_reviews                     office_reviews[]
   order_items                        order_items[]
-  pickup_tasks                       pickup_tasks[]
-  platform_commissions               platform_commissions[]
   products                           products[]
   transaction_ledger                 transaction_ledger[]
+  warehouse_purchase_orders          warehouse_purchase_orders[]
 
   @@index([factory_code], map: "idx_factories_code")
   @@index([office_id], map: "idx_factories_office")
@@ -151,7 +117,7 @@ model factories {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model factory_reviews {
-  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id         String    @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   factory_id String    @db.Uuid
   order_id   String    @db.Uuid
   user_id    String    @db.Uuid
@@ -169,36 +135,34 @@ model factory_reviews {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model factory_settlements {
-  id                    String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  factory_id            String                 @db.Uuid
-  settlement_code       String                 @unique @db.VarChar(20)
-  settlement_status     settlement_status      @default(pending)
-  settlement_cycle      settlement_cycle?      @default(weekly)
-  total_order_amount    Decimal                @db.Decimal(15, 2)
-  platform_commission   Decimal                @db.Decimal(15, 2)
-  net_amount            Decimal                @db.Decimal(15, 2)
-  period_start          DateTime               @db.Date
-  period_end            DateTime               @db.Date
-  bank_name             String?                @db.VarChar(100)
-  bank_account_number   String?                @db.VarChar(50)
-  bank_account_name     String?                @db.VarChar(255)
-  transfer_reference    String?                @db.VarChar(100)
+  id                    String               @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  factory_id            String               @db.Uuid
+  settlement_code       String               @unique @db.VarChar(20)
+  settlement_status     settlement_status    @default(pending)
+  settlement_cycle      settlement_cycle?    @default(weekly)
+  total_order_amount    Decimal              @db.Decimal(15, 2)
+  platform_commission   Decimal              @db.Decimal(15, 2)
+  net_amount            Decimal              @db.Decimal(15, 2)
+  period_start          DateTime             @db.Date
+  period_end            DateTime             @db.Date
+  bank_name             String?              @db.VarChar(100)
+  bank_account_number   String?              @db.VarChar(50)
+  bank_account_name     String?              @db.VarChar(255)
+  transfer_reference    String?              @db.VarChar(100)
   transfer_receipt_url  String?
-  scheduled_payout_date DateTime?              @db.Date
-  processed_at          DateTime?              @db.Timestamptz(6)
-  completed_at          DateTime?              @db.Timestamptz(6)
+  scheduled_payout_date DateTime?            @db.Date
+  processed_at          DateTime?            @db.Timestamptz(6)
+  completed_at          DateTime?            @db.Timestamptz(6)
   failed_reason         String?
-  requires_approval     Boolean?               @default(false)
-  approved_by           String?                @db.Uuid
-  approved_at           DateTime?              @db.Timestamptz(6)
+  requires_approval     Boolean?             @default(false)
+  approved_by           String?              @db.Uuid
+  approved_at           DateTime?            @db.Timestamptz(6)
   notes                 String?
-  created_at            DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
-  total_gateway_fees    Decimal                @default(0.00) @db.Decimal(15, 2)
-  users                 users?                 @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  factories             factories              @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  platform_commissions  platform_commissions[]
-  settlement_items      settlement_items[]
+  created_at            DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime             @default(now()) @db.Timestamptz(6)
+  total_gateway_fees    Decimal              @default(0.00) @db.Decimal(15, 2)
+  users                 users?               @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factories             factories            @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   transaction_ledger    transaction_ledger[]
 
   @@index([settlement_code], map: "idx_factory_settlements_code")
@@ -209,61 +173,45 @@ model factory_settlements {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model factory_staff_interactions {
-  id               String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  factory_id       String                    @db.Uuid
-  office_id        String                    @db.Uuid
-  staff_id         String                    @db.Uuid
-  interaction_type interaction_type
-  description      String?
-  location         Unsupported("geography")?
-  photo_url        String?
-  interaction_date DateTime                  @db.Timestamptz(6)
-  created_at       DateTime                  @default(now()) @db.Timestamptz(6)
-  factories        factories                 @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  agent_offices    agent_offices             @relation(fields: [office_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  office_staff     office_staff              @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([interaction_date], map: "idx_factory_staff_interactions_date")
-  @@index([factory_id], map: "idx_factory_staff_interactions_factory")
-  @@index([office_id], map: "idx_factory_staff_interactions_office")
-  @@index([staff_id], map: "idx_factory_staff_interactions_staff")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model group_buying_sessions {
-  id                        String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  product_id                String               @db.Uuid
-  factory_id                String               @db.Uuid
-  session_code              String               @unique @db.VarChar(20)
-  status                    group_status         @default(forming)
+  id                        String                      @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  product_id                String                      @db.Uuid
+  factory_id                String                      @db.Uuid
+  session_code              String                      @unique @db.VarChar(20)
+  status                    group_status                @default(forming)
   target_moq                Int
-  group_price               Decimal              @db.Decimal(15, 2)
-  start_time                DateTime             @default(now()) @db.Timestamptz(6)
-  end_time                  DateTime             @db.Timestamptz(6)
-  moq_reached_at            DateTime?            @db.Timestamptz(6)
-  production_started_at     DateTime?            @db.Timestamptz(6)
-  production_completed_at   DateTime?            @db.Timestamptz(6)
-  estimated_completion_date DateTime?            @db.Date
-  created_at                DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime             @default(now()) @db.Timestamptz(6)
-  warehouse_check_at        DateTime?            @db.Timestamptz(6)
+  group_price               Decimal                     @db.Decimal(15, 2)
+  start_time                DateTime                    @default(now()) @db.Timestamptz(6)
+  end_time                  DateTime                    @db.Timestamptz(6)
+  moq_reached_at            DateTime?                   @db.Timestamptz(6)
+  production_started_at     DateTime?                   @db.Timestamptz(6)
+  production_completed_at   DateTime?                   @db.Timestamptz(6)
+  estimated_completion_date DateTime?                   @db.Date
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  base_price                Decimal                     @default(0.00) @db.Decimal(15, 2)
+  tier_config               Json?
+  platform_bot_quantity     Int?                        @default(0)
+  tier_reached              Int?
+  finalized_at              DateTime?                   @db.Timestamptz(6)
+  warehouse_check_at        DateTime?                   @db.Timestamptz(6)
   warehouse_has_stock       Boolean?
-  factory_notified_at       DateTime?            @db.Timestamptz(6)
-  factory_whatsapp_sent     Boolean?             @default(false)
+  factory_notified_at       DateTime?                   @db.Timestamptz(6)
+  factory_whatsapp_sent     Boolean?                    @default(false)
   grosir_units_needed       Int?
-  price_tier_25             Decimal?             @db.Decimal(15, 2)
-  price_tier_50             Decimal?             @db.Decimal(15, 2)
-  price_tier_75             Decimal?             @db.Decimal(15, 2)
-  price_tier_100            Decimal?             @db.Decimal(15, 2)
-  current_tier              Int?                 @default(25)
-  bot_participant_id        String?              @db.Uuid
-  factories                 factories            @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  products                  products             @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  price_tier_25             Decimal?                    @db.Decimal(15, 2)
+  price_tier_50             Decimal?                    @db.Decimal(15, 2)
+  price_tier_75             Decimal?                    @db.Decimal(15, 2)
+  price_tier_100            Decimal?                    @db.Decimal(15, 2)
+  current_tier              Int?                        @default(25)
+  bot_participant_id        String?                     @db.Uuid
+  factories                 factories                   @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  products                  products                    @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   group_participants        group_participants[]
   orders                    orders[]
   payments                  payments[]
-  pickup_tasks              pickup_tasks[]
+  warehouse_invoices        warehouse_invoices[]
+  warehouse_purchase_orders warehouse_purchase_orders[]
 
   @@index([session_code], map: "idx_group_sessions_code")
   @@index([end_time], map: "idx_group_sessions_end_time")
@@ -273,7 +221,7 @@ model group_buying_sessions {
 }
 
 model group_participants {
-  id                    String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                    String                @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   group_session_id      String                @db.Uuid
   user_id               String                @db.Uuid
   order_id              String?               @db.Uuid
@@ -282,6 +230,11 @@ model group_participants {
   unit_price            Decimal               @db.Decimal(15, 2)
   total_price           Decimal               @db.Decimal(15, 2)
   joined_at             DateTime              @default(now()) @db.Timestamptz(6)
+  is_platform_order     Boolean?              @default(false)
+  tier_reached          Int?
+  cashback_amount       Decimal?              @default(0.00) @db.Decimal(15, 2)
+  shipping_cost         Decimal?              @default(0.00) @db.Decimal(15, 2)
+  transaction_fee       Decimal?              @default(0.00) @db.Decimal(15, 2)
   is_bot_participant    Boolean?              @default(false)
   group_buying_sessions group_buying_sessions @relation(fields: [group_session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   orders                orders?               @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -289,15 +242,13 @@ model group_participants {
   product_variants      product_variants?     @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payments              payments[]
 
-  // NOTE: Removed unique constraint to allow users to join multiple times with different variants
-  // @@unique([group_session_id, user_id])
   @@index([order_id], map: "idx_group_participants_order")
   @@index([group_session_id], map: "idx_group_participants_session")
   @@index([user_id], map: "idx_group_participants_user")
 }
 
 model notifications {
-  id         String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id         String            @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   user_id    String            @db.Uuid
   type       notification_type
   title      String            @db.VarChar(255)
@@ -316,65 +267,8 @@ model notifications {
   @@index([user_id], map: "idx_notifications_user")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model office_reviews {
-  id                     String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  office_id              String        @db.Uuid
-  factory_id             String        @db.Uuid
-  pickup_task_id         String        @unique @db.Uuid
-  staff_id               String?       @db.Uuid
-  overall_rating         Int
-  punctuality_rating     Int?
-  professionalism_rating Int?
-  communication_rating   Int?
-  comment                String?
-  created_at             DateTime      @default(now()) @db.Timestamptz(6)
-  factories              factories     @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  agent_offices          agent_offices @relation(fields: [office_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  pickup_tasks           pickup_tasks  @relation(fields: [pickup_task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  office_staff           office_staff? @relation(fields: [staff_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([factory_id], map: "idx_office_reviews_factory")
-  @@index([office_id], map: "idx_office_reviews_office")
-  @@index([staff_id], map: "idx_office_reviews_staff")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model office_staff {
-  id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id                    String                       @unique @db.Uuid
-  office_id                  String                       @db.Uuid
-  staff_code                 String                       @unique @db.VarChar(20)
-  role                       staff_role
-  status                     staff_status                 @default(active)
-  id_card_number             String                       @unique @db.VarChar(20)
-  id_card_photo_url          String?
-  emergency_contact_name     String?                      @db.VarChar(255)
-  emergency_contact_phone    String?                      @db.VarChar(20)
-  bank_name                  String?                      @db.VarChar(100)
-  bank_account_number        String?                      @db.VarChar(50)
-  bank_account_name          String?                      @db.VarChar(255)
-  current_location           Unsupported("geography")?
-  is_available               Boolean?                     @default(true)
-  last_check_in              DateTime?                    @db.Timestamptz(6)
-  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
-  factory_staff_interactions factory_staff_interactions[]
-  office_reviews             office_reviews[]
-  agent_offices              agent_offices                @relation(fields: [office_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                      users                        @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  pickup_tasks               pickup_tasks[]
-
-  @@index([staff_code], map: "idx_office_staff_code")
-  @@index([office_id], map: "idx_office_staff_office")
-  @@index([role], map: "idx_office_staff_role")
-  @@index([status], map: "idx_office_staff_status")
-  @@index([user_id], map: "idx_office_staff_user")
-}
-
 model order_items {
-  id               String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id               String            @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   order_id         String            @db.Uuid
   product_id       String            @db.Uuid
   variant_id       String?           @db.Uuid
@@ -391,7 +285,6 @@ model order_items {
   orders           orders            @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   products         products          @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  pickup_items     pickup_items[]
   product_reviews  product_reviews?
 
   @@index([factory_id], map: "idx_order_items_factory")
@@ -401,59 +294,61 @@ model order_items {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model orders {
-  id                      String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  order_number            String                 @unique @db.VarChar(50)
-  user_id                 String                 @db.Uuid
-  group_session_id        String?                @db.Uuid
-  seller_id               String?                @db.Uuid  // NEW: For seller orders
-  order_source            order_source           @default(group_buying)  // NEW: Order source type
-  status                  order_status           @default(pending_payment)
-  subtotal                Decimal                @db.Decimal(15, 2)
-  shipping_cost           Decimal?               @default(0.00) @db.Decimal(15, 2)
-  tax_amount              Decimal?               @default(0.00) @db.Decimal(15, 2)
-  discount_amount         Decimal?               @default(0.00) @db.Decimal(15, 2)
-  total_amount            Decimal                @db.Decimal(15, 2)
-  shipping_name           String                 @db.VarChar(255)
-  shipping_phone          String                 @db.VarChar(20)
-  shipping_province       String                 @db.VarChar(100)
-  shipping_city           String                 @db.VarChar(100)
-  shipping_district       String                 @db.VarChar(100)
-  shipping_postal_code    String?                @db.VarChar(10)
-  shipping_address        String
-  shipping_notes          String?
-  estimated_delivery_date DateTime?              @db.Date
-  paid_at                 DateTime?              @db.Timestamptz(6)
-  shipped_at              DateTime?              @db.Timestamptz(6)
-  delivered_at            DateTime?              @db.Timestamptz(6)
-  cancelled_at            DateTime?              @db.Timestamptz(6)
-  created_at              DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime               @default(now()) @db.Timestamptz(6)
-  factory_reviews         factory_reviews[]
-  group_participants      group_participants[]
-  order_items             order_items[]
-  group_buying_sessions   group_buying_sessions? @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  sellers                 sellers?               @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users                   users                  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  payments                payments[]
-  platform_commissions    platform_commissions[]
-  refunds                 refunds[]
-  settlement_items        settlement_items[]
-  shipments               shipments[]
-  transaction_ledger      transaction_ledger[]
-  seller_stock_movements  seller_stock_movements[]  // NEW: Stock movements
+  id                        String                   @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  order_number              String                   @unique @db.VarChar(50)
+  user_id                   String                   @db.Uuid
+  group_session_id          String?                  @db.Uuid
+  status                    order_status             @default(pending_payment)
+  subtotal                  Decimal                  @db.Decimal(15, 2)
+  shipping_cost             Decimal?                 @default(0.00) @db.Decimal(15, 2)
+  tax_amount                Decimal?                 @default(0.00) @db.Decimal(15, 2)
+  discount_amount           Decimal?                 @default(0.00) @db.Decimal(15, 2)
+  total_amount              Decimal                  @db.Decimal(15, 2)
+  shipping_name             String                   @db.VarChar(255)
+  shipping_phone            String                   @db.VarChar(20)
+  shipping_province         String                   @db.VarChar(100)
+  shipping_city             String                   @db.VarChar(100)
+  shipping_district         String                   @db.VarChar(100)
+  shipping_postal_code      String?                  @db.VarChar(10)
+  shipping_address          String
+  shipping_notes            String?
+  estimated_delivery_date   DateTime?                @db.Date
+  paid_at                   DateTime?                @db.Timestamptz(6)
+  shipped_at                DateTime?                @db.Timestamptz(6)
+  delivered_at              DateTime?                @db.Timestamptz(6)
+  cancelled_at              DateTime?                @db.Timestamptz(6)
+  created_at                DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                 @default(now()) @db.Timestamptz(6)
+  selected_courier          String?                  @db.VarChar(50)
+  selected_courier_service  String?                  @db.VarChar(50)
+  is_platform_order         Boolean?                 @default(false)
+  warehouse_allocation_cost Decimal?                 @default(0.00) @db.Decimal(15, 2)
+  order_source              order_source?            @default(group_buying)
+  seller_id                 String?                  @db.Uuid
+  factory_reviews           factory_reviews[]
+  group_participants        group_participants[]
+  order_items               order_items[]
+  group_buying_sessions     group_buying_sessions?   @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sellers                   sellers?                 @relation(fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                     users                    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payments                  payments[]
+  refunds                   refunds[]
+  seller_stock_movements    seller_stock_movements[]
+  shipments                 shipments[]
+  transaction_ledger        transaction_ledger[]
 
   @@index([created_at(sort: Desc)], map: "idx_orders_created")
   @@index([group_session_id], map: "idx_orders_group_session")
-  @@index([seller_id], map: "idx_orders_seller")  // NEW index
-  @@index([order_source], map: "idx_orders_source")  // NEW index
   @@index([order_number], map: "idx_orders_number")
   @@index([status], map: "idx_orders_status")
   @@index([user_id], map: "idx_orders_user")
+  @@index([order_source], map: "idx_orders_order_source")
+  @@index([seller_id], map: "idx_orders_seller_id")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model payments {
-  id                     String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                     String                 @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   order_id               String?                @db.Uuid
   user_id                String                 @db.Uuid
   payment_method         payment_method
@@ -481,12 +376,13 @@ model payments {
   group_session_id       String?                @db.Uuid
   participant_id         String?                @db.Uuid
   metadata               Json?
+  wallet_amount          Decimal?               @default(0.00) @db.Decimal(15, 2)
+  xendit_amount          Decimal?               @default(0.00) @db.Decimal(15, 2)
   group_buying_sessions  group_buying_sessions? @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_group_session")
   group_participants     group_participants?    @relation(fields: [participant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_participant")
   orders                 orders?                @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users                  users                  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   refunds                refunds[]
-  settlement_items       settlement_items[]
   transaction_ledger     transaction_ledger[]
 
   @@index([is_in_escrow], map: "idx_payments_escrow")
@@ -498,84 +394,8 @@ model payments {
   @@index([participant_id], map: "idx_payments_participant")
 }
 
-model pickup_items {
-  id             String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  pickup_task_id String       @db.Uuid
-  order_item_id  String       @db.Uuid
-  quantity       Int
-  is_verified    Boolean?     @default(false)
-  created_at     DateTime     @default(now()) @db.Timestamptz(6)
-  order_items    order_items  @relation(fields: [order_item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  pickup_tasks   pickup_tasks @relation(fields: [pickup_task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([order_item_id], map: "idx_pickup_items_order_item")
-  @@index([pickup_task_id], map: "idx_pickup_items_task")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model pickup_tasks {
-  id                    String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  task_code             String                @unique @db.VarChar(20)
-  group_session_id      String                @db.Uuid
-  factory_id            String                @db.Uuid
-  office_id             String                @db.Uuid
-  assigned_staff_id     String?               @db.Uuid
-  status                pickup_status         @default(scheduled)
-  total_items           Int
-  total_orders          Int
-  scheduled_date        DateTime              @db.Date
-  scheduled_time_start  DateTime?             @db.Time(6)
-  scheduled_time_end    DateTime?             @db.Time(6)
-  actual_pickup_time    DateTime?             @db.Timestamptz(6)
-  pickup_photo_url      String?
-  factory_signature_url String?
-  notes                 String?
-  assigned_to_staff_at  DateTime?             @db.Timestamptz(6)
-  completed_at          DateTime?             @db.Timestamptz(6)
-  created_at            DateTime              @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime              @default(now()) @db.Timestamptz(6)
-  office_reviews        office_reviews?
-  pickup_items          pickup_items[]
-  office_staff          office_staff?         @relation(fields: [assigned_staff_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  factories             factories             @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  group_buying_sessions group_buying_sessions @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  agent_offices         agent_offices         @relation(fields: [office_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  shipments             shipments[]
-
-  @@index([factory_id], map: "idx_pickup_tasks_factory")
-  @@index([group_session_id], map: "idx_pickup_tasks_group_session")
-  @@index([office_id], map: "idx_pickup_tasks_office")
-  @@index([scheduled_date], map: "idx_pickup_tasks_scheduled_date")
-  @@index([assigned_staff_id], map: "idx_pickup_tasks_staff")
-  @@index([status], map: "idx_pickup_tasks_status")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model platform_commissions {
-  id                  String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  order_id            String               @db.Uuid
-  factory_id          String               @db.Uuid
-  order_subtotal      Decimal              @db.Decimal(15, 2)
-  commission_rate     Decimal              @db.Decimal(5, 2)
-  commission_amount   Decimal              @db.Decimal(15, 2)
-  payment_gateway_fee Decimal?             @default(0.00) @db.Decimal(15, 2)
-  other_fees          Decimal?             @default(0.00) @db.Decimal(15, 2)
-  net_revenue         Decimal              @db.Decimal(15, 2)
-  is_settled          Boolean?             @default(false)
-  settlement_id       String?              @db.Uuid
-  created_at          DateTime             @default(now()) @db.Timestamptz(6)
-  factories           factories            @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  orders              orders               @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  factory_settlements factory_settlements? @relation(fields: [settlement_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([factory_id], map: "idx_platform_commissions_factory")
-  @@index([order_id], map: "idx_platform_commissions_order")
-  @@index([is_settled], map: "idx_platform_commissions_settled")
-  @@index([settlement_id], map: "idx_platform_commissions_settlement")
-}
-
 model product_images {
-  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id            String   @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   product_id    String   @db.Uuid
   image_url     String
   display_order Int?     @default(0)
@@ -588,7 +408,7 @@ model product_images {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model product_reviews {
-  id                   String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                   String      @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   product_id           String      @db.Uuid
   order_item_id        String      @unique @db.Uuid
   user_id              String      @db.Uuid
@@ -613,7 +433,7 @@ model product_reviews {
 }
 
 model product_variants {
-  id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                         String                       @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   product_id                 String                       @db.Uuid
   sku                        String                       @unique @db.VarChar(100)
   variant_name               String                       @db.VarChar(255)
@@ -621,18 +441,20 @@ model product_variants {
   size                       String?                      @db.VarChar(50)
   material                   String?                      @db.VarChar(100)
   price_adjustment           Decimal?                     @default(0.00) @db.Decimal(15, 2)
-  stock_quantity             Int?                         @default(0)  // DEPRECATED: Use seller_inventory_variants instead
+  stock_quantity             Int?                         @default(0)
   weight_grams               Int?
   image_url                  String?
   is_active                  Boolean?                     @default(true)
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  grosir_variant_allocations grosir_variant_allocations[]
   group_participants         group_participants[]
   order_items                order_items[]
   products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  grosir_variant_allocations grosir_variant_allocations[]
-  seller_inventory_variants  seller_inventory_variants[]  // NEW: Seller variant inventory
-  seller_stock_movements     seller_stock_movements[]     // NEW: Stock movements
+  seller_inventory_variants  seller_inventory_variants[]
+  seller_stock_movements     seller_stock_movements[]
+  warehouse_inventory        warehouse_inventory[]
+  warehouse_purchase_orders  warehouse_purchase_orders[]
 
   @@index([product_id], map: "idx_product_variants_product")
   @@index([sku], map: "idx_product_variants_sku")
@@ -640,26 +462,24 @@ model product_variants {
 
 /// Stores grosir (wholesale) variant allocations per product
 model grosir_variant_allocations {
-  id                  String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id          String            @db.Uuid
   variant_id          String?           @db.Uuid
   allocation_quantity Int
   created_at          DateTime          @default(now()) @db.Timestamptz(6)
   updated_at          DateTime          @default(now()) @db.Timestamptz(6)
-  products            products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  product_variants    product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products            products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_grosir_allocations_product")
+  product_variants    product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_grosir_allocations_variant")
 
-  @@unique([product_id, variant_id])
+  @@unique([product_id, variant_id], map: "uq_product_variant")
   @@index([product_id], map: "idx_grosir_allocations_product")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model products {
-  id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  factory_id                 String?                      @db.Uuid  // Nullable - only for factory products
-  seller_id                  String?                      @db.Uuid  // Nullable - only for seller products
+  id                         String                       @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  factory_id                 String?                      @db.Uuid
   category_id                String                       @db.Uuid
-  product_source             product_source               @default(factory_group_buying)  // NEW: Source type
   sku                        String                       @unique @db.VarChar(100)
   name                       String                       @db.VarChar(255)
   slug                       String                       @unique(map: "products_slug_unique") @db.VarChar(255)
@@ -674,37 +494,41 @@ model products {
   length_cm                  Decimal?                     @db.Decimal(10, 2)
   width_cm                   Decimal?                     @db.Decimal(10, 2)
   height_cm                  Decimal?                     @db.Decimal(10, 2)
-  stock_quantity             Int?                         @default(0)  // DEPRECATED: Use seller_inventory instead
+  stock_quantity             Int?                         @default(0)
   meta_title                 String?                      @db.VarChar(255)
   meta_description           String?
   published_at               DateTime?                    @db.Timestamptz(6)
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   grosir_unit_size           Int?
+  product_source             product_source?              @default(factory_group_buying)
+  seller_id                  String?                      @db.Uuid
+  grosir_variant_allocations grosir_variant_allocations[]
   group_buying_sessions      group_buying_sessions[]
   order_items                order_items[]
   product_images             product_images[]
   product_reviews            product_reviews[]
   product_variants           product_variants[]
-  grosir_variant_allocations grosir_variant_allocations[]
-  seller_inventory           seller_inventory[]           // NEW: Seller inventory
   categories                 categories                   @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factories                  factories?                   @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   sellers                    sellers?                     @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  seller_inventory           seller_inventory[]
+  warehouse_inventory        warehouse_inventory[]
+  warehouse_purchase_orders  warehouse_purchase_orders[]
 
   @@index([category_id], map: "idx_products_category")
   @@index([factory_id], map: "idx_products_factory")
-  @@index([seller_id], map: "idx_products_seller")          // NEW index
-  @@index([product_source], map: "idx_products_source")     // NEW index
   @@index([published_at], map: "idx_products_published")
   @@index([sku], map: "idx_products_sku")
   @@index([slug], map: "idx_products_slug")
   @@index([status], map: "idx_products_status")
+  @@index([product_source], map: "idx_products_product_source")
+  @@index([seller_id], map: "idx_products_seller_id")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model refunds {
-  id                               String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                               String               @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   refund_code                      String               @unique @db.VarChar(20)
   payment_id                       String               @db.Uuid
   order_id                         String               @db.Uuid
@@ -736,29 +560,8 @@ model refunds {
   @@index([user_id], map: "idx_refunds_user")
 }
 
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model settlement_items {
-  id                  String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  settlement_id       String              @db.Uuid
-  order_id            String              @db.Uuid
-  payment_id          String?             @db.Uuid
-  order_amount        Decimal             @db.Decimal(15, 2)
-  platform_commission Decimal             @db.Decimal(15, 2)
-  net_amount          Decimal             @db.Decimal(15, 2)
-  order_completed_at  DateTime?           @db.Timestamptz(6)
-  included_at         DateTime            @default(now()) @db.Timestamptz(6)
-  gateway_fee         Decimal             @default(0.00) @db.Decimal(15, 2)
-  orders              orders              @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  payments            payments?           @relation(fields: [payment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  factory_settlements factory_settlements @relation(fields: [settlement_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([settlement_id, order_id])
-  @@index([order_id], map: "idx_settlement_items_order")
-  @@index([settlement_id], map: "idx_settlement_items_settlement")
-}
-
 model shipment_tracking_events {
-  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id          String    @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   shipment_id String    @db.Uuid
   status      String    @db.VarChar(100)
   description String
@@ -773,7 +576,7 @@ model shipment_tracking_events {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model shipments {
-  id                       String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                       String                     @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   pickup_task_id           String?                    @db.Uuid
   order_id                 String                     @db.Uuid
   courier_service          courier_service
@@ -809,7 +612,6 @@ model shipments {
   updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
   shipment_tracking_events shipment_tracking_events[]
   orders                   orders                     @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  pickup_tasks             pickup_tasks?              @relation(fields: [pickup_task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([courier_service], map: "idx_shipments_courier")
   @@index([order_id], map: "idx_shipments_order")
@@ -829,7 +631,7 @@ model spatial_ref_sys {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model transaction_ledger {
-  id                  String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id                  String               @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   transaction_code    String               @unique @db.VarChar(50)
   transaction_type    transaction_type
   factory_id          String?              @db.Uuid
@@ -857,7 +659,7 @@ model transaction_ledger {
 }
 
 model user_addresses {
-  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id             String   @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   user_id        String   @db.Uuid
   label          String   @db.VarChar(50)
   recipient_name String   @db.VarChar(255)
@@ -878,40 +680,43 @@ model user_addresses {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model users {
-  id                                     String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  phone_number                           String                @unique @db.VarChar(20)
-  email                                  String?               @unique @db.VarChar(255)
-  password_hash                          String                @db.VarChar(255)
-  first_name                             String                @db.VarChar(100)
-  last_name                              String?               @db.VarChar(100)
-  role                                   user_role             @default(customer)
-  status                                 user_status           @default(active)
+  id                                     String                      @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  phone_number                           String                      @unique @db.VarChar(20)
+  email                                  String?                     @unique @db.VarChar(255)
+  password_hash                          String                      @db.VarChar(255)
+  first_name                             String                      @db.VarChar(100)
+  last_name                              String?                     @db.VarChar(100)
+  role                                   user_role                   @default(customer)
+  status                                 user_status                 @default(active)
   avatar_url                             String?
-  referral_code                          String?               @unique @db.VarChar(10)
-  referred_by                            String?               @db.Uuid
-  created_at                             DateTime              @default(now()) @db.Timestamptz(6)
-  updated_at                             DateTime              @default(now()) @db.Timestamptz(6)
-  last_login_at                          DateTime?             @db.Timestamptz(6)
-  agent_offices                          agent_offices[]
+  referral_code                          String?                     @unique @db.VarChar(10)
+  referred_by                            String?                     @db.Uuid
+  created_at                             DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                             DateTime                    @default(now()) @db.Timestamptz(6)
+  last_login_at                          DateTime?                   @db.Timestamptz(6)
   audit_logs                             audit_logs[]
-  factories_factories_owner_idTousers    factories[]           @relation("factories_owner_idTousers")
-  factories_factories_verified_byTousers factories[]           @relation("factories_verified_byTousers")
+  factories_factories_owner_idTousers    factories[]                 @relation("factories_owner_idTousers")
+  factories_factories_verified_byTousers factories[]                 @relation("factories_verified_byTousers")
   factory_reviews                        factory_reviews[]
   factory_settlements                    factory_settlements[]
   group_participants                     group_participants[]
   notifications                          notifications[]
-  office_staff                           office_staff?
   orders                                 orders[]
   payments                               payments[]
   product_reviews                        product_reviews[]
-  refunds_refunds_approved_byTousers     refunds[]             @relation("refunds_approved_byTousers")
-  refunds_refunds_user_idTousers         refunds[]             @relation("refunds_user_idTousers")
+  push_subscriptions                     push_subscriptions[]
+  refunds_refunds_approved_byTousers     refunds[]                   @relation("refunds_approved_byTousers")
+  refunds_refunds_user_idTousers         refunds[]                   @relation("refunds_user_idTousers")
+  seller_stock_movements                 seller_stock_movements[]
+  sellers                                sellers[]
+  sellers_verified_by                    sellers[]                   @relation("sellers_verified_by")
   user_addresses                         user_addresses[]
-  users                                  users?                @relation("usersTousers", fields: [referred_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  other_users                            users[]               @relation("usersTousers")
-  sellers                                sellers[]             // NEW: Seller accounts
-  sellers_verified_by                    sellers[]             @relation("sellers_verified_by")  // NEW: Sellers verified by this user
-  seller_stock_movements                 seller_stock_movements[]  // NEW: Stock movements performed by this user
+  user_wallets                           user_wallets?
+  users                                  users?                      @relation("usersTousers", fields: [referred_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_users                            users[]                     @relation("usersTousers")
+  wallet_transactions                    wallet_transactions[]
+  wallet_withdrawals                     wallet_withdrawals[]
+  warehouse_purchase_orders              warehouse_purchase_orders[]
 
   @@index([email], map: "idx_users_email")
   @@index([phone_number], map: "idx_users_phone")
@@ -921,7 +726,7 @@ model users {
 }
 
 model webhook_events {
-  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id           String    @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   event_id     String    @unique @db.VarChar(255)
   event_type   String    @db.VarChar(100)
   payload      Json
@@ -940,6 +745,316 @@ model otps {
   attempts    Int      @default(0)
   expiresAt   DateTime @db.Timestamptz(6)
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Sellers - Individual or business sellers who maintain their own inventory
+model sellers {
+  id                      String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String               @db.Uuid
+  seller_type             seller_type?         @default(individual)
+  status                  seller_status?       @default(pending)
+  store_name              String               @db.VarChar(255)
+  store_slug              String               @unique @db.VarChar(255)
+  store_description       String?
+  store_logo_url          String?
+  store_banner_url        String?
+  phone_number            String               @db.VarChar(20)
+  email                   String?              @db.VarChar(255)
+  province                String               @db.VarChar(100)
+  city                    String               @db.VarChar(100)
+  district                String               @db.VarChar(100)
+  postal_code             String?              @db.VarChar(10)
+  address_line            String
+  business_license_number String?              @unique @db.VarChar(50)
+  business_license_url    String?
+  tax_id                  String?              @db.VarChar(50)
+  bank_name               String?              @db.VarChar(100)
+  bank_account_number     String?              @db.VarChar(50)
+  bank_account_name       String?              @db.VarChar(255)
+  verification_status     verification_status? @default(unverified)
+  verified_at             DateTime?            @db.Timestamptz(6)
+  verified_by             String?              @db.Uuid
+  created_at              DateTime?            @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?            @default(now()) @db.Timestamptz(6)
+  orders                  orders[]
+  products                products[]
+  seller_inventory        seller_inventory[]
+  seller_settlements      seller_settlements[]
+  users                   users                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_verified_by       users?               @relation("sellers_verified_by", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_sellers_user_id")
+  @@index([status], map: "idx_sellers_status")
+  @@index([store_slug], map: "idx_sellers_store_slug")
+  @@index([verification_status], map: "idx_sellers_verification_status")
+}
+
+/// Seller-owned inventory for products
+model seller_inventory {
+  id                  String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id           String                      @db.Uuid
+  product_id          String                      @db.Uuid
+  stock_quantity      Int?                        @default(0)
+  reserved_quantity   Int?                        @default(0)
+  seller_price        Decimal                     @db.Decimal(15, 2)
+  cost_price          Decimal?                    @db.Decimal(15, 2)
+  warehouse_location  String?                     @db.VarChar(255)
+  low_stock_threshold Int?                        @default(10)
+  is_active           Boolean?                    @default(true)
+  created_at          DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?                   @default(now()) @db.Timestamptz(6)
+  products            products                    @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sellers             sellers                     @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  inventory_variants  seller_inventory_variants[]
+  stock_movements     seller_stock_movements[]
+
+  @@unique([seller_id, product_id])
+  @@index([is_active], map: "idx_seller_inventory_is_active")
+  @@index([product_id], map: "idx_seller_inventory_product_id")
+  @@index([seller_id], map: "idx_seller_inventory_seller_id")
+  @@index([stock_quantity], map: "idx_seller_inventory_stock_quantity")
+}
+
+/// Variant-specific inventory for sellers
+model seller_inventory_variants {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  inventory_id      String           @db.Uuid
+  variant_id        String           @db.Uuid
+  stock_quantity    Int?             @default(0)
+  reserved_quantity Int?             @default(0)
+  price_adjustment  Decimal?         @default(0.00) @db.Decimal(15, 2)
+  is_active         Boolean?         @default(true)
+  created_at        DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?        @default(now()) @db.Timestamptz(6)
+  seller_inventory  seller_inventory @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants  product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([inventory_id, variant_id])
+  @@index([inventory_id], map: "idx_seller_inv_var_inventory_id")
+  @@index([stock_quantity], map: "idx_seller_inv_var_stock")
+  @@index([variant_id], map: "idx_seller_inv_var_variant_id")
+}
+
+/// Track stock movements for auditing
+model seller_stock_movements {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  inventory_id     String              @db.Uuid
+  variant_id       String?             @db.Uuid
+  movement_type    stock_movement_type
+  quantity         Int
+  stock_after      Int
+  order_id         String?             @db.Uuid
+  reference_type   String?             @db.VarChar(50)
+  reference_id     String?             @db.Uuid
+  notes            String?
+  performed_by     String?             @db.Uuid
+  created_at       DateTime?           @default(now()) @db.Timestamptz(6)
+  seller_inventory seller_inventory    @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  orders           orders?             @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users            users?              @relation(fields: [performed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product_variants product_variants?   @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_seller_stock_mov_created_at")
+  @@index([inventory_id], map: "idx_seller_stock_mov_inventory_id")
+  @@index([movement_type], map: "idx_seller_stock_mov_movement_type")
+  @@index([order_id], map: "idx_seller_stock_mov_order_id")
+}
+
+/// Financial settlements for sellers
+model seller_settlements {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seller_id           String    @db.Uuid
+  settlement_code     String    @unique @db.VarChar(20)
+  total_sales         Decimal?  @default(0.00) @db.Decimal(15, 2)
+  platform_commission Decimal?  @default(0.00) @db.Decimal(15, 2)
+  gateway_fees        Decimal?  @default(0.00) @db.Decimal(15, 2)
+  net_amount          Decimal   @db.Decimal(15, 2)
+  period_start        DateTime  @db.Timestamptz(6)
+  period_end          DateTime  @db.Timestamptz(6)
+  status              String?   @default("pending") @db.VarChar(20)
+  bank_name           String?   @db.VarChar(100)
+  bank_account_number String?   @db.VarChar(50)
+  bank_account_name   String?   @db.VarChar(255)
+  paid_at             DateTime? @db.Timestamptz(6)
+  payment_reference   String?   @db.VarChar(255)
+  notes               String?
+  created_at          DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
+  sellers             sellers   @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status], map: "idx_seller_settlements_status")
+  @@index([period_start, period_end], map: "idx_seller_settlements_period")
+  @@index([settlement_code], map: "idx_seller_settlements_code")
+  @@index([seller_id], map: "idx_seller_settlements_seller_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model push_subscriptions {
+  id         String    @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  user_id    String    @db.Uuid
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([endpoint], map: "idx_push_subscriptions_endpoint")
+  @@index([user_id], map: "idx_push_subscriptions_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model user_wallets {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String   @unique @db.Uuid
+  balance         Decimal  @default(0) @db.Decimal(15, 2)
+  total_earned    Decimal  @default(0) @db.Decimal(15, 2)
+  total_spent     Decimal  @default(0) @db.Decimal(15, 2)
+  total_withdrawn Decimal  @default(0) @db.Decimal(15, 2)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+  users           users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model wallet_transactions {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String   @db.Uuid
+  amount         Decimal  @db.Decimal(15, 2)
+  type           String   @db.VarChar(50)
+  description    String?
+  reference_type String?  @db.VarChar(50)
+  reference_id   String?  @db.Uuid
+  balance_before Decimal  @db.Decimal(15, 2)
+  balance_after  Decimal  @db.Decimal(15, 2)
+  metadata       Json?
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  users          users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([reference_type, reference_id], map: "idx_wallet_transactions_reference")
+  @@index([type], map: "idx_wallet_transactions_type")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_wallet_transactions_user_created")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model wallet_withdrawals {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String    @db.Uuid
+  amount                 Decimal   @db.Decimal(15, 2)
+  withdrawal_fee         Decimal   @default(2500) @db.Decimal(15, 2)
+  net_amount             Decimal   @db.Decimal(15, 2)
+  bank_code              String    @db.VarChar(10)
+  bank_name              String    @db.VarChar(100)
+  account_number         String    @db.VarChar(50)
+  account_name           String    @db.VarChar(255)
+  status                 String    @default("pending") @db.VarChar(20)
+  xendit_disbursement_id String?   @db.VarChar(255)
+  requested_at           DateTime  @default(now()) @db.Timestamptz(6)
+  processed_at           DateTime? @db.Timestamptz(6)
+  completed_at           DateTime? @db.Timestamptz(6)
+  failed_reason          String?
+  admin_notes            String?
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  users                  users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status], map: "idx_wallet_withdrawals_status")
+  @@index([user_id], map: "idx_wallet_withdrawals_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model warehouse_inventory {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id         String            @db.Uuid
+  variant_id         String?           @db.Uuid
+  quantity           Int               @default(0)
+  reserved_quantity  Int               @default(0)
+  available_quantity Int?              @default(dbgenerated("(quantity - reserved_quantity)"))
+  location           String?           @db.VarChar(100)
+  min_stock_level    Int?              @default(0)
+  last_restocked_at  DateTime?         @db.Timestamptz(6)
+  last_sold_at       DateTime?         @db.Timestamptz(6)
+  created_at         DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime          @default(now()) @db.Timestamptz(6)
+  products           products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants   product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([product_id, variant_id])
+  @@index([product_id], map: "idx_warehouse_inventory_product")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model warehouse_invoices {
+  id                        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoice_number            String                     @unique @db.VarChar(50)
+  group_session_id          String?                    @db.Uuid
+  po_id                     String?                    @db.Uuid
+  inventory_cost            Decimal                    @default(0) @db.Decimal(15, 2)
+  inbound_shipping          Decimal                    @default(0) @db.Decimal(15, 2)
+  outbound_shipping         Decimal                    @default(0) @db.Decimal(15, 2)
+  handling_fees             Decimal                    @default(0) @db.Decimal(15, 2)
+  packing_materials         Decimal                    @default(0) @db.Decimal(15, 2)
+  subtotal                  Decimal                    @db.Decimal(15, 2)
+  tax_rate                  Decimal?                   @default(0.11) @db.Decimal(5, 4)
+  tax_amount                Decimal                    @default(0) @db.Decimal(15, 2)
+  total_amount              Decimal                    @db.Decimal(15, 2)
+  status                    String                     @default("pending") @db.VarChar(20)
+  issued_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  due_date                  DateTime?                  @db.Date
+  paid_at                   DateTime?                  @db.Timestamptz(6)
+  payment_reference         String?                    @db.VarChar(100)
+  notes                     String?
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  group_buying_sessions     group_buying_sessions?     @relation(fields: [group_session_id], references: [id], onUpdate: NoAction)
+  warehouse_purchase_orders warehouse_purchase_orders? @relation(fields: [po_id], references: [id], onUpdate: NoAction)
+
+  @@index([group_session_id], map: "idx_warehouse_invoices_session")
+  @@index([status], map: "idx_warehouse_invoices_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model warehouse_purchase_orders {
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  po_number              String                 @unique @db.VarChar(50)
+  factory_id             String                 @db.Uuid
+  group_session_id       String?                @db.Uuid
+  product_id             String                 @db.Uuid
+  variant_id             String?                @db.Uuid
+  quantity               Int
+  unit_cost              Decimal                @db.Decimal(15, 2)
+  shipping_cost          Decimal                @default(0) @db.Decimal(15, 2)
+  total_cost             Decimal                @db.Decimal(15, 2)
+  status                 String                 @default("pending") @db.VarChar(20)
+  ordered_at             DateTime               @default(now()) @db.Timestamptz(6)
+  confirmed_at           DateTime?              @db.Timestamptz(6)
+  shipped_at             DateTime?              @db.Timestamptz(6)
+  expected_delivery_date DateTime?              @db.Date
+  received_at            DateTime?              @db.Timestamptz(6)
+  received_quantity      Int?
+  damaged_quantity       Int?                   @default(0)
+  tracking_number        String?                @db.VarChar(100)
+  courier_service        String?                @db.VarChar(50)
+  notes                  String?
+  created_by             String?                @db.Uuid
+  created_at             DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime               @default(now()) @db.Timestamptz(6)
+  warehouse_invoices     warehouse_invoices[]
+  users                  users?                 @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factories              factories              @relation(fields: [factory_id], references: [id], onUpdate: NoAction)
+  group_buying_sessions  group_buying_sessions? @relation(fields: [group_session_id], references: [id], onUpdate: NoAction)
+  products               products               @relation(fields: [product_id], references: [id], onUpdate: NoAction)
+  product_variants       product_variants?      @relation(fields: [variant_id], references: [id], onUpdate: NoAction)
+
+  @@index([factory_id], map: "idx_warehouse_po_factory")
+  @@index([group_session_id], map: "idx_warehouse_po_session")
+  @@index([status], map: "idx_warehouse_po_status")
 }
 
 enum courier_service {
@@ -970,17 +1085,6 @@ enum group_status {
   orders_created
 }
 
-enum interaction_type {
-  factory_visit
-  registration
-  pickup
-  issue_resolution
-  training
-  quality_check
-  phone_call
-  other
-}
-
 enum notification_type {
   order_created
   payment_success
@@ -995,12 +1099,13 @@ enum notification_type {
   group_failed
   staff_assigned
   new_factory_assigned
-}
-
-enum office_status {
-  active
-  inactive
-  temporarily_closed
+  payment_failed
+  group_confirmed
+  production_completed
+  out_for_delivery
+  refund_initiated
+  refund_completed
+  order_cancelled
 }
 
 enum order_status {
@@ -1033,14 +1138,6 @@ enum payment_status {
   refunded
   failed
   expired
-}
-
-enum pickup_status {
-  scheduled
-  in_progress
-  completed
-  failed
-  cancelled
 }
 
 enum product_status {
@@ -1095,21 +1192,6 @@ enum shipment_status {
   returned
 }
 
-enum staff_role {
-  office_manager
-  field_coordinator
-  logistics_staff
-  admin_staff
-  warehouse_staff
-}
-
-enum staff_status {
-  active
-  on_leave
-  suspended
-  resigned
-}
-
 enum transaction_type {
   payment_received
   escrow_released
@@ -1125,8 +1207,8 @@ enum user_role {
   customer
   office_staff
   factory_owner
-  seller
   admin
+  seller
 }
 
 enum user_status {
@@ -1174,205 +1256,4 @@ enum order_source {
   group_buying
   seller_store
   mixed
-}
-
-/// Sellers - Individual or business sellers who maintain their own inventory
-model sellers {
-  id                      String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id                 String              @db.Uuid
-  seller_type             seller_type         @default(individual)
-  status                  seller_status       @default(pending)
-
-  // Store Info
-  store_name              String              @db.VarChar(255)
-  store_slug              String              @unique @db.VarChar(255)
-  store_description       String?
-  store_logo_url          String?
-  store_banner_url        String?
-
-  // Contact
-  phone_number            String              @db.VarChar(20)
-  email                   String?             @db.VarChar(255)
-
-  // Address
-  province                String              @db.VarChar(100)
-  city                    String              @db.VarChar(100)
-  district                String              @db.VarChar(100)
-  postal_code             String?             @db.VarChar(10)
-  address_line            String
-
-  // Legal (for business sellers)
-  business_license_number String?             @unique @db.VarChar(50)
-  business_license_url    String?
-  tax_id                  String?             @db.VarChar(50)
-
-  // Banking
-  bank_name               String?             @db.VarChar(100)
-  bank_account_number     String?             @db.VarChar(50)
-  bank_account_name       String?             @db.VarChar(255)
-
-  // Verification
-  verification_status     verification_status @default(unverified)
-  verified_at             DateTime?           @db.Timestamptz(6)
-  verified_by             String?             @db.Uuid
-
-  // Timestamps
-  created_at              DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime            @default(now()) @db.Timestamptz(6)
-
-  // Relations
-  users                   users               @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users_verified_by       users?              @relation("sellers_verified_by", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  products                products[]
-  seller_inventory        seller_inventory[]
-  orders                  orders[]
-  seller_settlements      seller_settlements[]
-
-  @@index([user_id], map: "idx_sellers_user_id")
-  @@index([status], map: "idx_sellers_status")
-  @@index([store_slug], map: "idx_sellers_store_slug")
-  @@index([verification_status], map: "idx_sellers_verification_status")
-}
-
-/// Seller-owned inventory for products
-model seller_inventory {
-  id                   String                      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  seller_id            String                      @db.Uuid
-  product_id           String                      @db.Uuid
-
-  // Stock tracking
-  stock_quantity       Int                         @default(0)
-  reserved_quantity    Int                         @default(0)
-
-  // Pricing (seller can override product base price)
-  seller_price         Decimal                     @db.Decimal(15, 2)
-  cost_price           Decimal?                    @db.Decimal(15, 2)
-
-  // Location
-  warehouse_location   String?                     @db.VarChar(255)
-
-  // Stock alerts
-  low_stock_threshold  Int?                        @default(10)
-
-  // Status
-  is_active            Boolean                     @default(true)
-
-  // Timestamps
-  created_at           DateTime                    @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime                    @default(now()) @db.Timestamptz(6)
-
-  // Relations
-  sellers              sellers                     @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  products             products                    @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  inventory_variants   seller_inventory_variants[]
-  stock_movements      seller_stock_movements[]
-
-  @@unique([seller_id, product_id])
-  @@index([seller_id], map: "idx_seller_inventory_seller")
-  @@index([product_id], map: "idx_seller_inventory_product")
-  @@index([stock_quantity], map: "idx_seller_inventory_stock")
-}
-
-/// Variant-specific inventory for sellers
-model seller_inventory_variants {
-  id                String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  inventory_id      String           @db.Uuid
-  variant_id        String           @db.Uuid
-
-  // Stock tracking
-  stock_quantity    Int              @default(0)
-  reserved_quantity Int              @default(0)
-
-  // Pricing override for this variant
-  price_adjustment  Decimal?         @default(0.00) @db.Decimal(15, 2)
-
-  // Status
-  is_active         Boolean          @default(true)
-
-  // Timestamps
-  created_at        DateTime         @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime         @default(now()) @db.Timestamptz(6)
-
-  // Relations
-  seller_inventory  seller_inventory @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  product_variants  product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([inventory_id, variant_id])
-  @@index([inventory_id], map: "idx_seller_inv_var_inventory")
-  @@index([variant_id], map: "idx_seller_inv_var_variant")
-}
-
-/// Track stock movements for auditing
-model seller_stock_movements {
-  id               String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  inventory_id     String              @db.Uuid
-  variant_id       String?             @db.Uuid
-
-  // Movement details
-  movement_type    stock_movement_type
-  quantity         Int
-  stock_after      Int
-
-  // References
-  order_id         String?             @db.Uuid
-  reference_type   String?             @db.VarChar(50)
-  reference_id     String?             @db.Uuid
-
-  // Notes
-  notes            String?
-  performed_by     String?             @db.Uuid
-
-  // Timestamp
-  created_at       DateTime            @default(now()) @db.Timestamptz(6)
-
-  // Relations
-  seller_inventory seller_inventory    @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  product_variants product_variants?   @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  orders           orders?             @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users            users?              @relation(fields: [performed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([inventory_id], map: "idx_seller_stock_mov_inventory")
-  @@index([order_id], map: "idx_seller_stock_mov_order")
-  @@index([created_at(sort: Desc)], map: "idx_seller_stock_mov_created")
-}
-
-/// Financial settlements for sellers
-model seller_settlements {
-  id                  String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  seller_id           String   @db.Uuid
-  settlement_code     String   @unique @db.VarChar(20)
-
-  // Financial details
-  total_sales         Decimal  @default(0.00) @db.Decimal(15, 2)
-  platform_commission Decimal  @default(0.00) @db.Decimal(15, 2)
-  gateway_fees        Decimal  @default(0.00) @db.Decimal(15, 2)
-  net_amount          Decimal  @db.Decimal(15, 2)
-
-  // Period
-  period_start        DateTime @db.Timestamptz(6)
-  period_end          DateTime @db.Timestamptz(6)
-
-  // Status
-  status              String   @default("pending") @db.VarChar(20)
-
-  // Payment details
-  bank_name           String?  @db.VarChar(100)
-  bank_account_number String?  @db.VarChar(50)
-  bank_account_name   String?  @db.VarChar(255)
-  paid_at             DateTime? @db.Timestamptz(6)
-  payment_reference   String?  @db.VarChar(255)
-
-  // Notes
-  notes               String?
-
-  // Timestamps
-  created_at          DateTime @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime @default(now()) @db.Timestamptz(6)
-
-  // Relations
-  sellers             sellers  @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([seller_id], map: "idx_seller_settlements_seller")
-  @@index([status], map: "idx_seller_settlements_status")
-  @@index([period_start, period_end], map: "idx_seller_settlements_period")
 }
