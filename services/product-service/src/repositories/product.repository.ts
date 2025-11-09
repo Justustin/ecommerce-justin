@@ -212,8 +212,12 @@ export class ProductRepository {
   }
 
   async deleteVariant(variantId: string) {
-    return prisma.product_variants.delete({
-      where: { id: variantId }
+    return prisma.product_variants.update({
+      where: { id: variantId },
+      data: {
+        is_active: false,
+        updated_at: new Date()
+      }
     });
   }
 

@@ -98,7 +98,10 @@ export class ProductController {
 
   createVariant = async (req: Request, res: Response) => {
     try {
-      const variant = await this.service.createVariant(req.body);
+      const variant = await this.service.createVariant({
+        ...req.body,
+        productId: req.params.id
+      });
       res.status(201).json(variant);
     } catch (error: any) {
       res.status(400).json({ error: error.message });

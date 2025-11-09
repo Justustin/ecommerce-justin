@@ -404,7 +404,7 @@ export class AdminController {
   };
 
   /**
-   * Admin: Delete category
+   * Admin: Delete category (soft delete)
    */
   deleteCategory = async (req: Request, res: Response) => {
     try {
@@ -412,32 +412,13 @@ export class AdminController {
 
       const { prisma } = await import('@repo/database');
 
-      // Check if category has products
-      const productsCount = await prisma.products.count({
-        where: { category_id: id }
-      });
-
-      if (productsCount > 0) {
-        return res.status(400).json({
-          error: 'Cannot delete category with existing products',
-          details: `This category has ${productsCount} product(s). Please delete or move the products first.`
-        });
-      }
-
-      // Check if category has subcategories
-      const subcategoriesCount = await prisma.categories.count({
-        where: { parent_id: id }
-      });
-
-      if (subcategoriesCount > 0) {
-        return res.status(400).json({
-          error: 'Cannot delete category with subcategories',
-          details: `This category has ${subcategoriesCount} subcategory(ies). Please delete or move the subcategories first.`
-        });
-      }
-
-      await prisma.categories.delete({
-        where: { id }
+      // Soft delete - set is_active to false
+      await prisma.categories.update({
+        where: { id },
+        data: {
+          is_active: false,
+          updated_at: new Date()
+        }
       });
 
       res.json({
@@ -447,13 +428,6 @@ export class AdminController {
       // Handle Prisma errors
       if (error.code === 'P2025') {
         return res.status(404).json({ error: 'Category not found' });
-      }
-      // Handle foreign key constraint violations
-      if (error.code === 'P2003') {
-        return res.status(400).json({
-          error: 'Cannot delete category',
-          details: 'This category is referenced by other records'
-        });
       }
       res.status(400).json({ error: error.message });
     }
