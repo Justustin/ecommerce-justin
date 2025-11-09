@@ -504,8 +504,8 @@ export class GroupBuyingService {
   }
 
   /**
-   * Fulfill demand via warehouse service
-   * Warehouse will check stock, reserve it, and send WhatsApp to factory if needed
+   * NEW: Fulfill demand via warehouse service using bundle-based system
+   * Warehouse will check stock, calculate bundles needed, reserve stock, and send WhatsApp to factory
    */
   async fulfillWarehouseDemand(sessionId: string) {
     const session = await this.repository.findById(sessionId);
@@ -516,92 +516,88 @@ export class GroupBuyingService {
     const warehouseServiceUrl = process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3011';
     const { prisma } = await import('@repo/database');
 
-    // Define type for warehouse response
-    interface WarehouseFulfillmentResult {
-      variantId: string;
-      quantity: number;
-      message: string;
-      hasStock: boolean;
-      reserved?: number;
-      inventoryId?: string;
-      purchaseOrder?: any;
-      grosirUnitsNeeded?: number;
-    }
-
     try {
       // Get all variant quantities from participants
       const participants = await prisma.group_participants.findMany({
         where: { group_session_id: sessionId }
       });
 
-      // Group by variant
-      const variantDemands = participants.reduce((acc, p) => {
-        const key = p.variant_id || 'base';
+      // Group by variant and prepare demands array
+      const variantDemandsMap = participants.reduce((acc, p) => {
+        const key = p.variant_id || 'null';
         acc[key] = (acc[key] || 0) + p.quantity;
         return acc;
       }, {} as Record<string, number>);
 
-      const grosirUnitSize = session.products.grosir_unit_size || 12;
-      const results: WarehouseFulfillmentResult[] = [];
+      // Convert to array format expected by warehouse
+      const variantDemands = Object.entries(variantDemandsMap).map(([variantId, quantity]) => ({
+        variantId: variantId === 'null' ? null : variantId,
+        quantity
+      }));
 
-      // Call warehouse /fulfill-demand for each variant
-      // Warehouse service will handle stock check and factory WhatsApp
-      for (const [variantId, quantity] of Object.entries(variantDemands)) {
-        const response = await axios.post(
-          `${warehouseServiceUrl}/api/warehouse/fulfill-demand`,
-          {
-            productId: session.product_id,
-            variantId: variantId === 'base' ? null : variantId,
-            quantity,
-            wholesaleUnit: grosirUnitSize
-          },
-          {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 10000
-          }
-        );
+      logger.info('Calling warehouse bundle-based fulfillment', {
+        sessionId,
+        productId: session.product_id,
+        variantDemands
+      });
 
-        results.push({
-          variantId,
-          quantity,
-          ...response.data
-        });
-      }
+      // Call warehouse /fulfill-bundle-demand with ALL variants at once
+      const response = await axios.post(
+        `${warehouseServiceUrl}/api/warehouse/fulfill-bundle-demand`,
+        {
+          productId: session.product_id,
+          sessionId,
+          variantDemands
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 30000 // Longer timeout for bundle calculation
+        }
+      );
 
-      const allInStock = results.every(r => r.hasStock);
-      const totalGrosirNeeded = results
-        .filter(r => !r.hasStock)
-        .reduce((sum, r) => sum + (r.grosirUnitsNeeded || 0), 0);
+      const result = response.data;
+
+      logger.info('Warehouse bundle fulfillment response', {
+        sessionId,
+        hasStock: result.hasStock,
+        bundlesOrdered: result.bundlesOrdered,
+        constrainingVariant: result.constrainingVariant
+      });
 
       // Update session with warehouse check results
       await prisma.group_buying_sessions.update({
         where: { id: sessionId },
         data: {
           warehouse_check_at: new Date(),
-          warehouse_has_stock: allInStock,
-          grosir_units_needed: totalGrosirNeeded,
-          // WhatsApp sent by warehouse service if no stock
-          factory_whatsapp_sent: !allInStock,
-          factory_notified_at: !allInStock ? new Date() : null
+          warehouse_has_stock: result.hasStock,
+          grosir_units_needed: result.bundlesOrdered || 0,
+          // WhatsApp sent by warehouse service if ordering needed
+          factory_whatsapp_sent: !result.hasStock,
+          factory_notified_at: !result.hasStock ? new Date() : null
         }
       });
 
       logger.info('Warehouse demand fulfilled', {
         sessionId,
-        allInStock,
-        totalGrosirNeeded,
-        results
+        hasStock: result.hasStock,
+        bundlesOrdered: result.bundlesOrdered,
+        message: result.message
       });
 
       return {
-        hasStock: allInStock,
-        grosirNeeded: totalGrosirNeeded,
-        results
+        hasStock: result.hasStock,
+        bundlesOrdered: result.bundlesOrdered || 0,
+        totalUnitsOrdered: result.totalUnitsOrdered || 0,
+        constrainingVariant: result.constrainingVariant,
+        message: result.message,
+        inventoryAdditions: result.inventoryAdditions,
+        purchaseOrder: result.purchaseOrder
       };
     } catch (error: any) {
       logger.error('Warehouse demand fulfillment failed', {
         sessionId,
-        error: error.message
+        error: error.message,
+        stack: error.stack
       });
       throw new Error(`Failed to fulfill warehouse demand: ${error.message}`);
     }
