@@ -545,9 +545,8 @@ router.post(
   '/categories',
   [
     body('name').notEmpty().trim(),
-    body('description').optional().trim(),
     body('parentCategoryId').optional({ nullable: true }).isUUID(),
-    body('imageUrl').optional().isURL()
+    body('iconUrl').optional().isURL()
   ],
   controller.createCategory
 );
@@ -582,8 +581,7 @@ router.put(
   [
     param('id').isUUID(),
     body('name').optional().trim(),
-    body('description').optional().trim(),
-    body('imageUrl').optional().isURL()
+    body('iconUrl').optional().isURL()
   ],
   controller.updateCategory
 );

@@ -289,15 +289,19 @@ export class AdminController {
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { name, description, parentCategoryId, imageUrl } = req.body;
+      const { name, parentCategoryId, iconUrl } = req.body;
 
       const { prisma } = await import('@repo/database');
+
+      // Generate slug from name
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
       const category = await prisma.categories.create({
         data: {
           name,
-          description,
-          parent_category_id: parentCategoryId || null,
-          image_url: imageUrl
+          slug,
+          parent_id: parentCategoryId || null,
+          icon_url: iconUrl || null
         }
       });
 
@@ -306,6 +310,13 @@ export class AdminController {
         data: category
       });
     } catch (error: any) {
+      // Handle Prisma unique constraint error
+      if (error.code === 'P2002') {
+        return res.status(409).json({
+          error: 'Category with this name already exists',
+          field: error.meta?.target?.[0]
+        });
+      }
       res.status(400).json({ error: error.message });
     }
   };
@@ -321,17 +332,28 @@ export class AdminController {
       }
 
       const { id } = req.params;
-      const { name, description, imageUrl } = req.body;
+      const { name, iconUrl } = req.body;
 
       const { prisma } = await import('@repo/database');
+
+      // Prepare update data
+      const updateData: any = {
+        updated_at: new Date()
+      };
+
+      if (name) {
+        updateData.name = name;
+        // Regenerate slug if name changes
+        updateData.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      }
+
+      if (iconUrl !== undefined) {
+        updateData.icon_url = iconUrl;
+      }
+
       const category = await prisma.categories.update({
         where: { id },
-        data: {
-          name,
-          description,
-          image_url: imageUrl,
-          updated_at: new Date()
-        }
+        data: updateData
       });
 
       res.json({
@@ -339,6 +361,16 @@ export class AdminController {
         data: category
       });
     } catch (error: any) {
+      // Handle Prisma errors
+      if (error.code === 'P2002') {
+        return res.status(409).json({
+          error: 'Category with this name already exists',
+          field: error.meta?.target?.[0]
+        });
+      }
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Category not found' });
+      }
       res.status(400).json({ error: error.message });
     }
   };
