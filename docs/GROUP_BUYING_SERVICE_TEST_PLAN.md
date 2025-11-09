@@ -1,8 +1,8 @@
 # Group Buying Service - Test Plan
 
 **Service:** Group Buying Service (Grosir)
-**Port:** 3005
-**Swagger URL:** http://localhost:3005/api-docs
+**Port:** 3004
+**Swagger URL:** http://localhost:3004/api-docs
 **Created:** 2025-11-09
 
 ---
@@ -78,7 +78,7 @@ SELECT id, first_name FROM users LIMIT 1;
 ### Test 2: Create Group Buying Session - Secure Code Generation!
 **Purpose:** Test secure session code generation with collision checking
 
-**Endpoint:** `POST /api/admin/sessions`
+**Endpoint:** `POST /api/group-buying`
 
 **Request Body:**
 ```json
@@ -139,7 +139,7 @@ Paste error here
 ### Test 3: Create Second Session - Collision Check
 **Purpose:** Verify no session code collisions occur
 
-**Endpoint:** `POST /api/admin/sessions`
+**Endpoint:** `POST /api/group-buying`
 
 **Request Body:** Use same data as Test 2 but different estimatedCompletionDate
 
@@ -156,7 +156,7 @@ Paste error here
 ### Test 4: List Active Sessions
 **Purpose:** Verify sessions are created and listable
 
-**Endpoint:** `GET /api/grosir/sessions`
+**Endpoint:** `GET /api/group-buying`
 
 **Query Parameters:** (optional)
 - `activeOnly=true`
@@ -204,7 +204,7 @@ Paste error here
 ### Test 5: Get Session by Code
 **Purpose:** Verify session lookup by code works
 
-**Endpoint:** `GET /api/grosir/sessions/code/{code}`
+**Endpoint:** `GET /api/group-buying/code/{code}`
 
 **Parameters:**
 - Use session_code from Test 2
@@ -236,7 +236,7 @@ Paste error here
 ### Test 6: Join Group Buying Session
 **Purpose:** Test joining a session
 
-**Endpoint:** `POST /api/grosir/sessions/{id}/join`
+**Endpoint:** `POST /api/group-buying/{id}/join`
 
 **Parameters:**
 - Use session ID from Test 2
@@ -246,6 +246,8 @@ Paste error here
 {
   "userId": "YOUR_USER_UUID_HERE",
   "quantity": 10,
+  "unitPrice": 150000,
+  "totalPrice": 1500000,
   "variantId": null
 }
 ```
@@ -277,7 +279,7 @@ Paste error here
 ### Test 7: Get Session Stats - MOQ Comparison Fix!
 **Purpose:** Test MOQ calculation uses totalQuantity not participantCount
 
-**Endpoint:** `GET /api/grosir/sessions/{id}/stats`
+**Endpoint:** `GET /api/group-buying/{id}/stats`
 
 **Parameters:**
 - Use session ID from Test 2
@@ -311,20 +313,22 @@ Paste error here
 ### Test 8: Join Session with More Quantity
 **Purpose:** Test MOQ threshold with epsilon comparison
 
-**Endpoint:** `POST /api/grosir/sessions/{id}/join`
+**Endpoint:** `POST /api/group-buying/{id}/join`
 
 **Request Body:**
 ```json
 {
   "userId": "YOUR_USER_UUID_HERE",
   "quantity": 90,
+  "unitPrice": 150000,
+  "totalPrice": 13500000,
   "variantId": null
 }
 ```
 
 **Expected Response:** `201 Created`
 
-**Then GET /api/grosir/sessions/{id}/stats**
+**Then GET /api/group-buying/{id}/stats**
 
 **Expected Response:**
 ```json
@@ -352,7 +356,7 @@ Paste error here
 ### Test 9: Get Participants
 **Purpose:** Verify participant listing
 
-**Endpoint:** `GET /api/grosir/sessions/{id}/participants`
+**Endpoint:** `GET /api/group-buying/{id}/participants`
 
 **Expected Response:** `200 OK`
 ```json
@@ -387,7 +391,7 @@ Paste error here
 ### Test 10: Update Session
 **Purpose:** Test session updating
 
-**Endpoint:** `PUT /api/grosir/sessions/{id}`
+**Endpoint:** `PATCH /api/group-buying/{id}`
 
 **Request Body:**
 ```json
@@ -418,10 +422,10 @@ Paste error here
 
 ---
 
-### Test 11: Admin Get All Sessions
-**Purpose:** Test admin session listing with filters
+### Test 11: List All Sessions with Filters
+**Purpose:** Test session listing with filters
 
-**Endpoint:** `GET /api/admin/sessions`
+**Endpoint:** `GET /api/group-buying`
 
 **Query Parameters:** (optional)
 - `status=forming`
@@ -446,17 +450,17 @@ Paste error here
 ```
 
 **What This Tests:**
-- ✅ Admin can list all sessions
-- ✅ Status filtering works
+- ✅ Session listing with status filtering works
+- ✅ Pagination works
 
 **Result:** [ ] PASS [ ] FAIL
 
 ---
 
-### Test 12: Admin Cancel Session
+### Test 12: Cancel Session
 **Purpose:** Test session cancellation
 
-**Endpoint:** `POST /api/admin/sessions/{id}/cancel`
+**Endpoint:** `POST /api/group-buying/{id}/cancel`
 
 **Request Body:**
 ```json
@@ -474,7 +478,7 @@ Paste error here
 ```
 
 **What This Tests:**
-- ✅ Admin can cancel sessions
+- ✅ Session cancellation works
 - ✅ Refund processing works
 
 **Result:** [ ] PASS [ ] FAIL
@@ -484,7 +488,7 @@ Paste error here
 ### Test 13: Verify Cancellation
 **Purpose:** Confirm session is cancelled
 
-**Endpoint:** `GET /api/grosir/sessions/{id}`
+**Endpoint:** `GET /api/group-buying/{id}`
 
 **Expected Response:** `200 OK` with status = 'cancelled'
 
