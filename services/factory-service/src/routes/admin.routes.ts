@@ -22,61 +22,71 @@ const controller = new AdminController();
  *           schema:
  *             type: object
  *             required:
+ *               - ownerId
+ *               - factoryCode
  *               - factoryName
- *               - ownerName
- *               - email
- *               - phone
- *               - address
+ *               - phoneNumber
+ *               - province
  *               - city
+ *               - district
+ *               - addressLine
  *             properties:
+ *               ownerId:
+ *                 type: string
+ *                 format: uuid
+ *               factoryCode:
+ *                 type: string
+ *                 example: "FACT-JKT-001"
  *               factoryName:
  *                 type: string
- *               ownerName:
+ *               phoneNumber:
  *                 type: string
  *               email:
  *                 type: string
  *                 format: email
- *               phone:
- *                 type: string
- *               address:
+ *               province:
  *                 type: string
  *               city:
  *                 type: string
- *               province:
+ *               district:
  *                 type: string
  *               postalCode:
  *                 type: string
+ *               addressLine:
+ *                 type: string
  *               description:
  *                 type: string
- *               certifications:
- *                 type: array
- *                 items:
- *                   type: string
- *               minimumOrderValue:
- *                 type: number
- *               productionCapacityPerMonth:
- *                 type: integer
+ *               businessLicenseNumber:
+ *                 type: string
+ *               taxId:
+ *                 type: string
+ *               logoUrl:
+ *                 type: string
  *     responses:
  *       201:
  *         description: Factory registered successfully
  *       400:
  *         description: Validation error
+ *       409:
+ *         description: Factory code already exists
  */
 router.post(
   '/',
   [
+    body('ownerId').isUUID(),
+    body('factoryCode').notEmpty().trim(),
     body('factoryName').notEmpty().trim(),
-    body('ownerName').notEmpty().trim(),
-    body('email').isEmail(),
-    body('phone').notEmpty().trim(),
-    body('address').notEmpty().trim(),
+    body('phoneNumber').notEmpty().trim(),
+    body('email').optional().isEmail(),
+    body('province').notEmpty().trim(),
     body('city').notEmpty().trim(),
-    body('province').optional().trim(),
+    body('district').notEmpty().trim(),
     body('postalCode').optional().trim(),
+    body('addressLine').notEmpty().trim(),
     body('description').optional().trim(),
-    body('certifications').optional().isArray(),
-    body('minimumOrderValue').optional().isNumeric(),
-    body('productionCapacityPerMonth').optional().isInt({ min: 0 })
+    body('businessLicenseNumber').optional().trim(),
+    body('taxId').optional().trim(),
+    body('logoUrl').optional().isURL()
   ],
   controller.registerFactory
 );
@@ -112,14 +122,16 @@ router.put(
     param('id').isUUID(),
     body('factoryName').optional().trim(),
     body('description').optional().trim(),
-    body('address').optional().trim(),
+    body('addressLine').optional().trim(),
     body('city').optional().trim(),
+    body('district').optional().trim(),
     body('province').optional().trim(),
     body('postalCode').optional().trim(),
-    body('phone').optional().trim(),
+    body('phoneNumber').optional().trim(),
     body('email').optional().isEmail(),
-    body('minimumOrderValue').optional().isNumeric(),
-    body('productionCapacityPerMonth').optional().isInt({ min: 0 })
+    body('businessLicenseNumber').optional().trim(),
+    body('taxId').optional().trim(),
+    body('logoUrl').optional().isURL()
   ],
   controller.updateFactory
 );
@@ -165,13 +177,11 @@ router.delete('/:id', [param('id').isUUID()], controller.deleteFactory);
  *           schema:
  *             type: object
  *             required:
- *               - verificationNotes
  *               - verifiedBy
  *             properties:
- *               verificationNotes:
- *                 type: string
  *               verifiedBy:
  *                 type: string
+ *                 format: uuid
  *     responses:
  *       200:
  *         description: Factory verified successfully
@@ -182,8 +192,7 @@ router.post(
   '/:id/verify',
   [
     param('id').isUUID(),
-    body('verificationNotes').notEmpty().trim(),
-    body('verifiedBy').notEmpty().trim()
+    body('verifiedBy').isUUID()
   ],
   controller.verifyFactory
 );
@@ -243,17 +252,6 @@ router.post(
  *         schema:
  *           type: string
  *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - notes
- *             properties:
- *               notes:
- *                 type: string
  *     responses:
  *       200:
  *         description: Factory reactivated successfully
@@ -262,7 +260,7 @@ router.post(
  */
 router.post(
   '/:id/reactivate',
-  [param('id').isUUID(), body('notes').notEmpty().trim()],
+  [param('id').isUUID()],
   controller.reactivateFactory
 );
 
