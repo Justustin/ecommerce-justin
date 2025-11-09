@@ -25,8 +25,10 @@ export class GroupBuyingRepository {
         target_moq: data.targetMoq,
         group_price: data.groupPrice,
         start_time: data.startTime || new Date(),
-        end_time: data.endTime,
-        estimated_completion_date: data.estimatedCompletionDate || null,
+        end_time: data.endTime instanceof Date ? data.endTime : new Date(data.endTime),
+        estimated_completion_date: data.estimatedCompletionDate
+          ? (data.estimatedCompletionDate instanceof Date ? data.estimatedCompletionDate : new Date(data.estimatedCompletionDate))
+          : null,
         // TIERING SYSTEM: Add price tier fields
         price_tier_25: data.priceTier25 || null,
         price_tier_50: data.priceTier50 || null,
@@ -289,11 +291,15 @@ export class GroupBuyingRepository {
       updated_at: new Date()
     };
 
-    if (data.endTime !== undefined) updateData.end_time = data.endTime;
+    if (data.endTime !== undefined) {
+      updateData.end_time = data.endTime instanceof Date ? data.endTime : new Date(data.endTime);
+    }
     if (data.groupPrice !== undefined) updateData.group_price = data.groupPrice;
     if (data.targetMoq !== undefined) updateData.target_moq = data.targetMoq;
     if (data.estimatedCompletionDate !== undefined) {
-      updateData.estimated_completion_date = data.estimatedCompletionDate;
+      updateData.estimated_completion_date = data.estimatedCompletionDate
+        ? (data.estimatedCompletionDate instanceof Date ? data.estimatedCompletionDate : new Date(data.estimatedCompletionDate))
+        : null;
     }
 
     return this.prisma.group_buying_sessions.update({
