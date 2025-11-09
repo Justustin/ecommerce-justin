@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger';
 import addressRoutes from './routes/address.routes';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/addresses', addressRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);

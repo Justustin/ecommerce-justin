@@ -2,6 +2,7 @@ import express from 'express';
 import { prisma } from '@repo/database';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
@@ -11,8 +12,10 @@ const PORT = process.env.PORT || 3002;
 app.use(express.json());
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'auth-service' });
+  res.json({ status: 'ok', service: 'logistics-service' });
 });
+
+app.use('/api/admin', adminRoutes);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error(err.stack);
@@ -22,5 +25,5 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 app.listen(PORT, () => {
-  console.log(`service running on http://localhost:${PORT}`);
+  console.log(`🚚 Logistics Service running on http://localhost:${PORT}`);
 });

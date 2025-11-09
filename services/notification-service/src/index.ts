@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import notificationRoutes from './routes/notification.routes';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.get('/health', (req, res) => {
 
 // Routes
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 Handler
 app.use((req, res) => {
