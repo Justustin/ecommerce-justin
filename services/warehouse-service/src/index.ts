@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import warehouseRoutes from './routes/warehouse.routes';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ app.use(express.json());
 
 // Main application routes
 app.use('/api', warehouseRoutes);
+app.use('/api/admin/warehouse', adminRoutes);
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'warehouse-service' });
 });
