@@ -98,14 +98,47 @@ export class GroupBuyingService {
         if(!session) {
             throw new Error('Session not found')
         }
-        return session
+        // Add computed statistics for total quantity
+        return this.enrichSessionWithStats(session)
     }
+
+    /**
+     * Enrich session data with computed statistics
+     * Calculates totalQuantity by summing participant quantities
+     */
+    private enrichSessionWithStats(session: any) {
+        // Calculate total quantity from all participants
+        const totalQuantity = session.group_participants?.reduce(
+            (sum: number, p: any) => sum + Number(p.quantity || 0),
+            0
+        ) || 0;
+
+        // Calculate total revenue
+        const totalRevenue = session.group_participants?.reduce(
+            (sum: number, p: any) => sum + Number(p.total_price || 0),
+            0
+        ) || 0;
+
+        // Return session with enhanced stats
+        return {
+            ...session,
+            _stats: {
+                totalQuantity,
+                totalRevenue,
+                participantCount: session._count?.group_participants || 0,
+                moqProgress: session.target_moq > 0 ? (totalQuantity / session.target_moq) * 100 : 0,
+                moqReached: totalQuantity >= session.target_moq
+            }
+        };
+    }
+
     async getSessionByCode(code: string) {
         const session = await this.repository.findByCode(code)
         if(!session) {
             throw new Error('Session not found')
         }
-        return session
+        // Add computed statistics for total quantity
+        return this.enrichSessionWithStats(session)
     }
     async listSessions(filters: GroupSessionFilters) {
         return this.repository.findAll(filters)
