@@ -74,6 +74,100 @@ router.get('/', async (req, res) => {
 
 /**
  * @swagger
+ * /api/categories/root:
+ *   get:
+ *     summary: Get root categories only (no parent)
+ *     tags: [Categories]
+ *     responses:
+ *       200:
+ *         description: List of root categories
+ */
+router.get('/root', async (req, res) => {
+  try {
+    const categories = await prisma.categories.findMany({
+      where: {
+        parent_id: null,
+        is_active: true
+      },
+      include: {
+        _count: {
+          select: {
+            products: true,
+            other_categories: true
+          }
+        }
+      },
+      orderBy: [
+        { display_order: 'asc' },
+        { name: 'asc' }
+      ]
+    });
+
+    res.json({
+      success: true,
+      data: categories
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/categories/slug/{slug}:
+ *   get:
+ *     summary: Get category by slug
+ *     tags: [Categories]
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Category slug
+ *     responses:
+ *       200:
+ *         description: Category details
+ *       404:
+ *         description: Category not found
+ */
+router.get('/slug/:slug', async (req, res) => {
+  try {
+    const category = await prisma.categories.findUnique({
+      where: { slug: req.params.slug },
+      include: {
+        other_categories: {
+          where: { is_active: true },
+          orderBy: { display_order: 'asc' }
+        },
+        categories: {
+          select: {
+            id: true,
+            name: true,
+            slug: true
+          }
+        },
+        _count: {
+          select: { products: true }
+        }
+      }
+    });
+
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json({
+      success: true,
+      data: category
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
  * /api/categories/{id}:
  *   get:
  *     summary: Get category by ID with subcategories

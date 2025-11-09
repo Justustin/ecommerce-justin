@@ -149,6 +149,47 @@ router.put(
  */
 router.delete('/products/:id', [param('id').isUUID()], controller.deleteProduct);
 
+/**
+ * @swagger
+ * /api/admin/products/{id}/status:
+ *   put:
+ *     tags: [Admin - Products]
+ *     summary: Update product status
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [draft, active, archived]
+ *                 example: active
+ *     responses:
+ *       200:
+ *         description: Product status updated successfully
+ *       400:
+ *         description: Validation error
+ */
+router.put(
+  '/products/:id/status',
+  [
+    param('id').isUUID(),
+    body('status').isIn(['draft', 'active', 'archived'])
+  ],
+  controller.updateProductStatus
+);
+
 // ============================================================================
 // VARIANT MANAGEMENT
 // ============================================================================

@@ -64,6 +64,28 @@ export class AdminController {
   };
 
   /**
+   * Admin: Update product status
+   */
+  updateProductStatus = async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { status } = req.body;
+      const product = await this.repository.update(req.params.id, { status });
+
+      res.json({
+        message: 'Product status updated successfully',
+        data: product
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
    * Admin: Add product variant
    */
   createVariant = async (req: Request, res: Response) => {
@@ -73,9 +95,15 @@ export class AdminController {
         return res.status(400).json({ errors: errors.array() });
       }
 
+      const { sku, variantName, priceAdjustment, stockQuantity, attributes } = req.body;
+
       const variant = await this.repository.createVariant({
-        ...req.body,
-        productId: req.params.id
+        productId: req.params.id, // Explicitly set first
+        sku,
+        variantName,
+        priceAdjustment,
+        stockQuantity,
+        attributes
       });
 
       res.status(201).json({
@@ -383,6 +411,31 @@ export class AdminController {
       const { id } = req.params;
 
       const { prisma } = await import('@repo/database');
+
+      // Check if category has products
+      const productsCount = await prisma.products.count({
+        where: { category_id: id }
+      });
+
+      if (productsCount > 0) {
+        return res.status(400).json({
+          error: 'Cannot delete category with existing products',
+          details: `This category has ${productsCount} product(s). Please delete or move the products first.`
+        });
+      }
+
+      // Check if category has subcategories
+      const subcategoriesCount = await prisma.categories.count({
+        where: { parent_id: id }
+      });
+
+      if (subcategoriesCount > 0) {
+        return res.status(400).json({
+          error: 'Cannot delete category with subcategories',
+          details: `This category has ${subcategoriesCount} subcategory(ies). Please delete or move the subcategories first.`
+        });
+      }
+
       await prisma.categories.delete({
         where: { id }
       });
@@ -391,6 +444,17 @@ export class AdminController {
         message: 'Category deleted successfully'
       });
     } catch (error: any) {
+      // Handle Prisma errors
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+      // Handle foreign key constraint violations
+      if (error.code === 'P2003') {
+        return res.status(400).json({
+          error: 'Cannot delete category',
+          details: 'This category is referenced by other records'
+        });
+      }
       res.status(400).json({ error: error.message });
     }
   };

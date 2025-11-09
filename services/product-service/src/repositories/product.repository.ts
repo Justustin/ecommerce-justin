@@ -191,8 +191,9 @@ export class ProductRepository {
         product_id: data.productId,
         sku: data.sku,
         variant_name: data.variantName,
-        price_adjustment: data.priceAdjustment,
-        stock_quantity: data.stockQuantity
+        price_adjustment: data.priceAdjustment || 0,
+        stock_quantity: data.stockQuantity || 0,
+        is_active: true
       }
     });
   }
