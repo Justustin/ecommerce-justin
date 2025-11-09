@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger';
 import groupBuyingRoutes from './routes/group-buying.routes';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/group-buying', groupBuyingRoutes);
+app.use('/api/admin/grosir', adminRoutes);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);

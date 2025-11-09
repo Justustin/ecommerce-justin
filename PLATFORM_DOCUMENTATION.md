@@ -764,6 +764,579 @@ GET /api/group-buying/:sessionId/variant-availability/:variantId
 
 ---
 
+## Admin Endpoints Specification
+
+### Overview
+
+Admin endpoints are required across all services for platform configuration and management. All admin endpoints should be prefixed with `/api/admin/` and require admin authentication middleware.
+
+### 1. Group Buying Service - Admin Endpoints
+
+**Status:** ✅ IMPLEMENTED
+
+**Base Path:** `/api/admin/grosir`
+
+#### Bulk Configuration
+```http
+POST /api/admin/grosir/configure-product
+Content-Type: application/json
+
+{
+  "productId": "uuid",
+  "bundleConfigs": [
+    {
+      "variantId": "uuid" | null,
+      "unitsPerBundle": 5,
+      "notes": "Medium size - 5 per bundle"
+    }
+  ],
+  "warehouseTolerances": [
+    {
+      "variantId": "uuid" | null,
+      "maxExcessUnits": 50,
+      "clearanceRateEstimate": 80,
+      "notes": "M sells well in clearance"
+    }
+  ]
+}
+```
+
+#### Bundle Configuration CRUD
+```http
+POST /api/admin/grosir/bundle-config         # Create
+GET /api/admin/grosir/bundle-config/:productId # Read
+PUT /api/admin/grosir/bundle-config/:id        # Update
+DELETE /api/admin/grosir/bundle-config/:productId # Delete all for product
+```
+
+#### Warehouse Tolerance CRUD
+```http
+POST /api/admin/grosir/warehouse-tolerance         # Create
+GET /api/admin/grosir/warehouse-tolerance/:productId # Read
+PUT /api/admin/grosir/warehouse-tolerance/:id        # Update
+DELETE /api/admin/grosir/warehouse-tolerance/:productId # Delete all for product
+```
+
+#### Complete Config View
+```http
+GET /api/admin/grosir/config/:productId  # Get both bundle config + warehouse tolerance
+```
+
+**Implementation Status:**
+- ✅ Admin controller created
+- ✅ Admin routes registered
+- ✅ Validation middleware added
+- ✅ Swagger documentation included
+- ⏳ Admin authentication middleware needed
+
+---
+
+### 2. Product Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/products`
+
+#### Product Management
+```http
+POST /api/admin/products                    # Create product
+PUT /api/admin/products/:id                 # Update product
+DELETE /api/admin/products/:id              # Delete product (soft delete)
+POST /api/admin/products/:id/variants       # Add variants
+PUT /api/admin/products/:id/variants/:variantId  # Update variant
+DELETE /api/admin/products/:id/variants/:variantId  # Delete variant
+POST /api/admin/products/:id/images         # Upload product images
+PUT /api/admin/products/:id/images/:imageId/order  # Reorder images
+DELETE /api/admin/products/:id/images/:imageId  # Delete image
+```
+
+#### Category Management
+```http
+POST /api/admin/categories                  # Create category
+PUT /api/admin/categories/:id               # Update category
+DELETE /api/admin/categories/:id            # Delete category
+POST /api/admin/categories/:id/subcategories  # Add subcategory
+```
+
+#### Bulk Operations
+```http
+POST /api/admin/products/bulk-import        # Import products via CSV
+POST /api/admin/products/bulk-update        # Bulk update prices/stock
+POST /api/admin/products/bulk-delete        # Bulk soft delete
+```
+
+**Why Needed:**
+- Products need admin-only management (not factory-created)
+- Variant configuration requires oversight
+- Image management for quality control
+- Bulk operations for efficiency
+
+---
+
+### 3. Factory Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/factories`
+
+#### Factory Management
+```http
+POST /api/admin/factories                   # Register factory
+PUT /api/admin/factories/:id                # Update factory details
+DELETE /api/admin/factories/:id             # Delete/suspend factory
+POST /api/admin/factories/:id/verify        # Verify factory (admin approval)
+POST /api/admin/factories/:id/suspend       # Suspend factory
+POST /api/admin/factories/:id/reactivate    # Reactivate factory
+GET /api/admin/factories/:id/metrics        # Factory performance metrics
+```
+
+#### Factory Sessions Management
+```http
+GET /api/admin/factories/:id/sessions       # List all sessions for factory
+POST /api/admin/factories/:id/sessions/:sessionId/cancel  # Force cancel session
+GET /api/admin/factories/:id/analytics      # Revenue, success rate, etc.
+```
+
+**Why Needed:**
+- Factory registration requires admin verification
+- Quality control and compliance monitoring
+- Dispute resolution requires admin intervention
+- Performance tracking and analytics
+
+---
+
+### 4. Warehouse Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/warehouse`
+
+#### Inventory Management
+```http
+GET /api/admin/warehouse/inventory          # View all inventory
+POST /api/admin/warehouse/inventory/adjust  # Manual stock adjustment
+GET /api/admin/warehouse/inventory/:productId  # View product inventory
+POST /api/admin/warehouse/inventory/:productId/reserve  # Manual reservation
+POST /api/admin/warehouse/inventory/:productId/release  # Release reservation
+```
+
+#### Purchase Order Management
+```http
+GET /api/admin/warehouse/purchase-orders    # List all POs
+GET /api/admin/warehouse/purchase-orders/:id  # View PO details
+PUT /api/admin/warehouse/purchase-orders/:id  # Update PO status
+POST /api/admin/warehouse/purchase-orders/:id/receive  # Mark PO received
+POST /api/admin/warehouse/purchase-orders/:id/cancel   # Cancel PO
+```
+
+#### Stock Auditing
+```http
+GET /api/admin/warehouse/audit-log          # View stock movement history
+POST /api/admin/warehouse/cycle-count       # Initiate cycle count
+GET /api/admin/warehouse/discrepancies      # View inventory discrepancies
+```
+
+**Why Needed:**
+- Manual stock adjustments for physical counts
+- PO tracking and fulfillment oversight
+- Inventory discrepancy resolution
+- Stock auditing for compliance
+
+---
+
+### 5. User/Auth Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/users`
+
+#### User Management
+```http
+GET /api/admin/users                        # List all users (paginated)
+GET /api/admin/users/:id                    # View user details
+PUT /api/admin/users/:id                    # Update user details
+POST /api/admin/users/:id/suspend           # Suspend user account
+POST /api/admin/users/:id/reactivate        # Reactivate user account
+DELETE /api/admin/users/:id                 # Delete user (soft delete)
+POST /api/admin/users/:id/reset-password    # Force password reset
+```
+
+#### Role Management
+```http
+POST /api/admin/users/:id/roles             # Assign role to user
+DELETE /api/admin/users/:id/roles/:roleId   # Remove role from user
+GET /api/admin/roles                        # List all roles
+POST /api/admin/roles                       # Create role
+PUT /api/admin/roles/:id                    # Update role permissions
+```
+
+#### User Analytics
+```http
+GET /api/admin/users/analytics              # User growth, activity metrics
+GET /api/admin/users/:id/activity-log       # User activity history
+GET /api/admin/users/:id/orders             # User order history (cross-service)
+```
+
+**Why Needed:**
+- User support and account recovery
+- Fraud prevention and account suspension
+- Role-based access control management
+- User behavior monitoring
+
+---
+
+### 6. Payment Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/payments`
+
+#### Payment Management
+```http
+GET /api/admin/payments                     # List all payments (paginated)
+GET /api/admin/payments/:id                 # View payment details
+POST /api/admin/payments/:id/refund         # Manual refund
+POST /api/admin/payments/:id/investigate    # Mark for investigation
+GET /api/admin/payments/failed              # List failed payments
+POST /api/admin/payments/:id/retry          # Retry failed payment
+```
+
+#### Refund Management
+```http
+GET /api/admin/refunds                      # List all refunds
+GET /api/admin/refunds/:id                  # View refund details
+POST /api/admin/refunds/:id/approve         # Approve refund request
+POST /api/admin/refunds/:id/reject          # Reject refund request
+```
+
+#### Financial Reports
+```http
+GET /api/admin/payments/reports/daily       # Daily payment report
+GET /api/admin/payments/reports/settlement  # Settlement report
+GET /api/admin/payments/reconciliation      # Payment reconciliation
+GET /api/admin/payments/escrow-balance      # Total escrow balance
+```
+
+**Why Needed:**
+- Manual refund processing for disputes
+- Payment reconciliation with Xendit
+- Financial reporting for accounting
+- Fraud detection and investigation
+
+---
+
+### 7. Order Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/orders`
+
+#### Order Management
+```http
+GET /api/admin/orders                       # List all orders (paginated)
+GET /api/admin/orders/:id                   # View order details
+PUT /api/admin/orders/:id/status            # Update order status
+POST /api/admin/orders/:id/cancel           # Cancel order
+POST /api/admin/orders/:id/refund           # Initiate order refund
+```
+
+#### Order Analytics
+```http
+GET /api/admin/orders/analytics             # Order metrics (volume, revenue)
+GET /api/admin/orders/failed                # List failed orders
+GET /api/admin/orders/pending               # List pending orders
+GET /api/admin/orders/reports/daily         # Daily order report
+```
+
+#### Bulk Operations
+```http
+POST /api/admin/orders/bulk-update-status   # Bulk status update
+POST /api/admin/orders/bulk-export          # Export orders to CSV
+```
+
+**Why Needed:**
+- Order dispute resolution
+- Manual status updates for exceptions
+- Order analytics and reporting
+- Bulk operations for efficiency
+
+---
+
+### 8. Logistics Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/logistics`
+
+#### Shipment Management
+```http
+GET /api/admin/logistics/shipments          # List all shipments
+GET /api/admin/logistics/shipments/:id      # View shipment details
+POST /api/admin/logistics/shipments/:id/cancel  # Cancel shipment
+POST /api/admin/logistics/shipments/:id/track   # Force tracking refresh
+PUT /api/admin/logistics/shipments/:id/courier  # Change courier
+```
+
+#### Courier Management
+```http
+GET /api/admin/logistics/couriers           # List available couriers
+POST /api/admin/logistics/couriers          # Add courier configuration
+PUT /api/admin/logistics/couriers/:id       # Update courier settings
+DELETE /api/admin/logistics/couriers/:id    # Remove courier
+```
+
+#### Shipping Analytics
+```http
+GET /api/admin/logistics/analytics          # Shipping metrics
+GET /api/admin/logistics/delayed-shipments  # List delayed shipments
+GET /api/admin/logistics/courier-performance  # Courier performance report
+```
+
+**Why Needed:**
+- Shipment issue resolution
+- Courier performance monitoring
+- Manual shipment management for exceptions
+- Shipping cost analysis
+
+---
+
+### 9. Wallet Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/wallets`
+
+#### Wallet Management
+```http
+GET /api/admin/wallets                      # List all wallets
+GET /api/admin/wallets/:userId              # View user wallet
+POST /api/admin/wallets/:userId/credit      # Manual credit adjustment
+POST /api/admin/wallets/:userId/debit       # Manual debit adjustment
+GET /api/admin/wallets/:userId/transactions # View wallet transaction history
+```
+
+#### Wallet Analytics
+```http
+GET /api/admin/wallets/analytics            # Wallet usage metrics
+GET /api/admin/wallets/total-balance        # Total platform wallet balance
+GET /api/admin/wallets/reports/monthly      # Monthly wallet report
+```
+
+**Why Needed:**
+- Manual wallet adjustments for refunds/credits
+- Wallet discrepancy resolution
+- Financial reporting
+- Customer support for wallet issues
+
+---
+
+### 10. Notification Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/notifications`
+
+#### Notification Management
+```http
+POST /api/admin/notifications/broadcast     # Send broadcast notification
+GET /api/admin/notifications                # List all notifications
+GET /api/admin/notifications/:id            # View notification details
+GET /api/admin/notifications/templates      # List notification templates
+POST /api/admin/notifications/templates     # Create notification template
+PUT /api/admin/notifications/templates/:id  # Update template
+```
+
+#### Notification Analytics
+```http
+GET /api/admin/notifications/analytics      # Delivery rates, open rates
+GET /api/admin/notifications/failed         # List failed notifications
+POST /api/admin/notifications/:id/resend    # Resend notification
+```
+
+**Why Needed:**
+- Broadcast announcements to users
+- Template management for consistency
+- Notification delivery monitoring
+- Failed notification troubleshooting
+
+---
+
+### 11. Seller Service - Admin Endpoints (NEEDED - Planned)
+
+**Status:** 📝 REQUIRED (Service Planned)
+
+**Base Path:** `/api/admin/sellers`
+
+#### Seller Management
+```http
+POST /api/admin/sellers                     # Register seller
+PUT /api/admin/sellers/:id                  # Update seller details
+POST /api/admin/sellers/:id/verify          # Verify seller (admin approval)
+POST /api/admin/sellers/:id/suspend         # Suspend seller
+POST /api/admin/sellers/:id/reactivate      # Reactivate seller
+GET /api/admin/sellers/:id/metrics          # Seller performance metrics
+```
+
+#### Seller Inventory Oversight
+```http
+GET /api/admin/sellers/:id/inventory        # View seller inventory
+POST /api/admin/sellers/:id/inventory/audit # Initiate inventory audit
+GET /api/admin/sellers/:id/sales            # Seller sales analytics
+```
+
+**Why Needed:**
+- Seller verification and onboarding
+- Quality control and compliance
+- Seller performance monitoring
+- Inventory auditing
+
+---
+
+### 12. Address Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/addresses`
+
+#### Address Management
+```http
+GET /api/admin/addresses                    # List all addresses (for analytics)
+GET /api/admin/addresses/users/:userId      # View user addresses
+GET /api/admin/addresses/analytics          # Address distribution analytics
+GET /api/admin/addresses/validation-errors  # List address validation failures
+```
+
+**Why Needed:**
+- Address data quality monitoring
+- Shipping zone analytics
+- Address validation issue resolution
+
+---
+
+### 13. WhatsApp Service - Admin Endpoints (NEEDED)
+
+**Status:** 📝 REQUIRED
+
+**Base Path:** `/api/admin/whatsapp`
+
+#### WhatsApp Management
+```http
+POST /api/admin/whatsapp/send               # Send manual WhatsApp message
+GET /api/admin/whatsapp/messages            # List sent messages
+GET /api/admin/whatsapp/failed              # List failed messages
+POST /api/admin/whatsapp/messages/:id/resend  # Resend failed message
+GET /api/admin/whatsapp/templates           # List WhatsApp templates
+PUT /api/admin/whatsapp/templates/:id       # Update template
+```
+
+**Why Needed:**
+- Manual message sending for support
+- Failed message troubleshooting
+- Template management
+- Message delivery monitoring
+
+---
+
+### 14. Review Service - Admin Endpoints (NEEDED - Planned)
+
+**Status:** 📝 REQUIRED (Service Planned)
+
+**Base Path:** `/api/admin/reviews`
+
+#### Review Moderation
+```http
+GET /api/admin/reviews                      # List all reviews (paginated)
+GET /api/admin/reviews/pending              # List pending reviews
+POST /api/admin/reviews/:id/approve         # Approve review
+POST /api/admin/reviews/:id/reject          # Reject review
+POST /api/admin/reviews/:id/flag            # Flag inappropriate review
+DELETE /api/admin/reviews/:id               # Delete review
+```
+
+**Why Needed:**
+- Content moderation
+- Review quality control
+- Inappropriate content removal
+
+---
+
+### 15. Settlement Service - Admin Endpoints (NEEDED - Planned)
+
+**Status:** 📝 REQUIRED (Service Planned)
+
+**Base Path:** `/api/admin/settlements`
+
+#### Settlement Management
+```http
+GET /api/admin/settlements                  # List all settlements
+POST /api/admin/settlements/process         # Process pending settlements
+GET /api/admin/settlements/:id              # View settlement details
+POST /api/admin/settlements/:id/approve     # Approve settlement
+POST /api/admin/settlements/:id/reject      # Reject settlement
+GET /api/admin/settlements/reports/monthly  # Monthly settlement report
+```
+
+**Why Needed:**
+- Settlement approval workflow
+- Financial reconciliation
+- Seller/factory payout management
+
+---
+
+### Admin Authentication & Authorization
+
+**Required for all admin endpoints:**
+
+```typescript
+// Middleware: adminAuth.ts
+export const requireAdmin = async (req, res, next) => {
+  // 1. Verify JWT token
+  // 2. Check user role = 'admin' or 'super_admin'
+  // 3. Log admin action for audit trail
+  // 4. Proceed or return 403 Forbidden
+};
+
+// Usage in routes:
+router.post('/api/admin/products', requireAdmin, controller.createProduct);
+```
+
+**Admin Roles:**
+- `super_admin` - Full access to all admin endpoints
+- `admin_products` - Product and category management only
+- `admin_orders` - Order and logistics management only
+- `admin_finance` - Payment, wallet, settlement management only
+- `admin_support` - User management and review moderation only
+
+---
+
+### Implementation Priority
+
+**Phase 1 (COMPLETED):**
+- ✅ Group Buying Service - Grosir configuration
+
+**Phase 2 (IMMEDIATE - Required for Testing):**
+1. Product Service - Product/variant CRUD
+2. Warehouse Service - Inventory management
+3. Factory Service - Factory verification
+
+**Phase 3 (HIGH PRIORITY):**
+4. Payment Service - Manual refunds and reconciliation
+5. Order Service - Order management
+6. User Service - User management
+
+**Phase 4 (MEDIUM PRIORITY):**
+7. Logistics Service - Shipment management
+8. Wallet Service - Wallet adjustments
+9. Notification Service - Broadcast and templates
+10. WhatsApp Service - Message management
+
+**Phase 5 (PLANNED SERVICES):**
+11. Seller Service - When seller service is implemented
+12. Review Service - When review service is implemented
+13. Settlement Service - When settlement service is implemented
+
+---
+
 ## Roadmap
 
 ### Immediate Priorities
@@ -794,6 +1367,15 @@ GET /api/group-buying/:sessionId/variant-availability/:variantId
 ---
 
 ## Change Log
+
+### November 9, 2025 - ✅ IMPLEMENTED: Admin Endpoints for Group Buying Service
+- **Created:** Admin controller (`admin.controller.ts`) with CRUD operations for grosir configuration
+- **Created:** Admin routes (`admin.routes.ts`) with validation middleware for all endpoints
+- **Registered:** Admin routes in main app under `/api/admin/grosir`
+- **Endpoints:** Bulk configure, bundle config CRUD, warehouse tolerance CRUD, complete config view
+- **Documented:** Comprehensive admin endpoints specification across all 15 platform services
+- **Organized:** Implementation phases (Phase 1 completed, Phases 2-5 documented)
+- **Status:** Group Buying Service admin endpoints PRODUCTION READY
 
 ### November 9, 2025 - ✅ IMPLEMENTED: Correct Grosir Allocation System
 - **Added:** `grosir_bundle_config` table (factory bundle composition per product)
