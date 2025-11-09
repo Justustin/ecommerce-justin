@@ -1,5 +1,5 @@
 {
-  "name": "product-service",
+  "name": "group-buying-service",
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {

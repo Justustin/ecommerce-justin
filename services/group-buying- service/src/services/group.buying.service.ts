@@ -157,8 +157,8 @@ export class GroupBuyingService {
                 if (variantAvail.isLocked) {
                     throw new Error(
                         `Variant is currently locked. ` +
-                        `Max ${variantAvail.maxAllowed} allowed, ` +
-                        `${variantAvail.totalOrdered} already ordered. ` +
+                        `Max ${variantAvail.maxCanOrder} allowed, ` +
+                        `${variantAvail.currentOrdered} already ordered. ` +
                         `Other variants need to catch up before you can order more of this variant.`
                     );
                 }
@@ -166,7 +166,7 @@ export class GroupBuyingService {
                 if (data.quantity > variantAvail.available) {
                     throw new Error(
                         `Only ${variantAvail.available} units available for this variant. ` +
-                        `Already ordered: ${variantAvail.totalOrdered}/${variantAvail.maxAllowed}`
+                        `Already ordered: ${variantAvail.currentOrdered}/${variantAvail.maxCanOrder}`
                     );
                 }
 
@@ -175,7 +175,7 @@ export class GroupBuyingService {
                     variantId: data.variantId,
                     requested: data.quantity,
                     available: variantAvail.available,
-                    totalOrdered: variantAvail.totalOrdered
+                    currentOrdered: variantAvail.currentOrdered
                 });
             } catch (error: any) {
                 // If allocation doesn't exist, that's okay - product might not use grosir system
@@ -312,12 +312,16 @@ export class GroupBuyingService {
     }
 
     const stats = await this.repository.getParticipantStats(sessionId);
-    
+
+    // Use epsilon comparison for floating-point safety
+    const EPSILON = 0.0001;
+    const moqReached = (stats.totalQuantity + EPSILON) >= session.target_moq;
+
     return {
       ...stats,
       targetMoq: session.target_moq,
-      progress: (stats.participantCount / session.target_moq) * 100,
-      moqReached: stats.participantCount >= session.target_moq,
+      progress: (stats.totalQuantity / session.target_moq) * 100,
+      moqReached,
       timeRemaining: this.calculateTimeRemaining(session.end_time),
       status: session.status
     };
@@ -731,8 +735,10 @@ export class GroupBuyingService {
     }
 
     const stats = await this.repository.getParticipantStats(sessionId);
-    
-    if (stats.participantCount >= session.target_moq && !session.moq_reached_at) {
+
+    // Use epsilon comparison for floating-point safety
+    const EPSILON = 0.0001;
+    if ((stats.totalQuantity + EPSILON) >= session.target_moq && !session.moq_reached_at) {
       await this.repository.markMoqReached(sessionId);
 
           // TODO: Notify factory owner
@@ -773,7 +779,11 @@ export class GroupBuyingService {
   for (const session of expiredSessions) {
     const stats = await this.repository.getParticipantStats(session.id);
 
-    if (session.status === 'moq_reached' || stats.participantCount >= session.target_moq) {
+    // Use epsilon comparison for floating-point safety
+    const EPSILON = 0.0001;
+    const moqMet = (stats.totalQuantity + EPSILON) >= session.target_moq;
+
+    if (session.status === 'moq_reached' || moqMet) {
       // CRITICAL FIX #5: Make processing idempotent with atomic status update
       // Try to claim this session for processing
       const claimed = await this.repository.updateStatus(session.id, 'moq_reached');
@@ -852,50 +862,6 @@ export class GroupBuyingService {
         fillPercentage: realFillPercentage
       });
 
-      // If < 25%, create bot to fill to 25%
-      let botCreated = false;
-      if (realFillPercentage < 25) {
-        const botQuantity = Math.ceil(fullSession.target_moq * 0.25) - realQuantity;
-
-        if (botQuantity > 0) {
-          const botUserId = process.env.BOT_USER_ID;
-          if (botUserId) {
-            try {
-              const botParticipant = await prisma.group_participants.create({
-                data: {
-                  group_session_id: session.id,
-                  user_id: botUserId,
-                  quantity: botQuantity,
-                  variant_id: null,
-                  unit_price: Number(fullSession.group_price), // Base price
-                  total_price: Number(fullSession.group_price) * botQuantity,
-                  is_bot_participant: true,
-                  joined_at: new Date()
-                }
-              });
-
-              await prisma.group_buying_sessions.update({
-                where: { id: session.id },
-                data: { bot_participant_id: botParticipant.id }
-              });
-
-              botCreated = true;
-              logger.info('Bot created to fill to 25% MOQ', {
-                sessionId: session.id,
-                botQuantity,
-                realQuantity,
-                totalNow: realQuantity + botQuantity
-              });
-            } catch (error: any) {
-              logger.error('Failed to create bot participant', {
-                sessionId: session.id,
-                error: error.message
-              });
-            }
-          }
-        }
-      }
-
       // Determine final tier based on REAL user fill percentage (not including bot)
       let finalTier = 25;
       let finalPrice = Number(fullSession.price_tier_25);
@@ -911,14 +877,62 @@ export class GroupBuyingService {
         finalPrice = Number(fullSession.price_tier_50);
       }
 
-      // Update session with final tier
-      await prisma.group_buying_sessions.update({
-        where: { id: session.id },
-        data: {
-          current_tier: finalTier,
-          updated_at: new Date()
-        }
-      });
+      // CRITICAL: Wrap bot creation and tier update in transaction for atomicity
+      let botCreated = false;
+      try {
+        await prisma.$transaction(async (tx) => {
+          // If < 25%, create bot to fill to 25%
+          if (realFillPercentage < 25) {
+            const botQuantity = Math.ceil(fullSession.target_moq * 0.25) - realQuantity;
+
+            if (botQuantity > 0) {
+              const botUserId = process.env.BOT_USER_ID;
+              if (botUserId) {
+                const botParticipant = await tx.group_participants.create({
+                  data: {
+                    group_session_id: session.id,
+                    user_id: botUserId,
+                    quantity: botQuantity,
+                    variant_id: null,
+                    unit_price: Number(fullSession.group_price), // Base price
+                    total_price: Number(fullSession.group_price) * botQuantity,
+                    is_bot_participant: true,
+                    joined_at: new Date()
+                  }
+                });
+
+                await tx.group_buying_sessions.update({
+                  where: { id: session.id },
+                  data: { bot_participant_id: botParticipant.id }
+                });
+
+                botCreated = true;
+                logger.info('Bot created to fill to 25% MOQ', {
+                  sessionId: session.id,
+                  botQuantity,
+                  realQuantity,
+                  totalNow: realQuantity + botQuantity
+                });
+              }
+            }
+          }
+
+          // Update session with final tier (in same transaction)
+          await tx.group_buying_sessions.update({
+            where: { id: session.id },
+            data: {
+              current_tier: finalTier,
+              updated_at: new Date()
+            }
+          });
+        });
+      } catch (error: any) {
+        logger.error('Failed to process bot creation and tier update', {
+          sessionId: session.id,
+          error: error.message
+        });
+        // Continue processing even if bot creation fails
+      }
 
       logger.info('Final tier determined', {
         sessionId: session.id,

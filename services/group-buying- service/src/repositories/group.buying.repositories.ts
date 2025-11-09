@@ -15,11 +15,13 @@ export class GroupBuyingRepository {
   }
 
   async createSession(data: CreateGroupSessionDTO) {
+    const sessionCode = data.sessionCode || await this.generateSessionCode();
+
     return this.prisma.group_buying_sessions.create({
       data: {
         product_id: data.productId,
         factory_id: data.factoryId,
-        session_code: data.sessionCode || this.generateSessionCode(),
+        session_code: sessionCode,
         target_moq: data.targetMoq,
         group_price: data.groupPrice,
         start_time: data.startTime || new Date(),
@@ -532,11 +534,32 @@ export class GroupBuyingRepository {
     );
   }
 
-  private generateSessionCode(): string {
-    // Format: GB-YYYYMMDD-XXXXX
+  private async generateSessionCode(): Promise<string> {
+    const crypto = await import('crypto');
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const random = Math.random().toString(36).substring(2, 7).toUpperCase();
-    return `GB-${date}-${random}`;
+
+    let attempts = 0;
+    while (attempts < 10) {
+      // Generate 8 secure random alphanumeric characters
+      const randomBytes = crypto.randomBytes(6);
+      const random = randomBytes
+        .toString('base64')
+        .replace(/[^A-Z0-9]/g, '')
+        .substring(0, 5)
+        .toUpperCase();
+
+      const code = `GB-${date}-${random}`;
+
+      // Check for collision
+      const exists = await this.sessionCodeExists(code);
+      if (!exists) {
+        return code;
+      }
+
+      attempts++;
+    }
+
+    throw new Error('Failed to generate unique session code after 10 attempts');
   }
 
   async sessionCodeExists(code: string): Promise<boolean> {
