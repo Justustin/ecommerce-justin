@@ -46,14 +46,6 @@ export class FactoryRepository {
             phone_number: true,
             role: true,
           }
-        },
-        agent_offices: {
-          select: {
-            id: true,
-            office_code: true,
-            office_name: true,
-            city: true,
-          }
         }
       }
     });
@@ -131,14 +123,6 @@ export class FactoryRepository {
               email: true,
               phone_number: true,
             }
-          },
-          agent_offices: {
-            select: {
-              id: true,
-              office_code: true,
-              office_name: true,
-              city: true,
-            }
           }
         },
         orderBy: {
@@ -172,15 +156,6 @@ export class FactoryRepository {
             role: true,
           }
         },
-        agent_offices: {
-          select: {
-            id: true,
-            office_code: true,
-            office_name: true,
-            city: true,
-            province: true,
-          }
-        },
         users_factories_verified_byTousers: {
           select: {
             id: true,
@@ -205,13 +180,6 @@ export class FactoryRepository {
             phone_number: true,
           }
         },
-        agent_offices: {
-          select: {
-            id: true,
-            office_code: true,
-            office_name: true,
-          }
-        }
       }
     });
   }
@@ -229,13 +197,6 @@ export class FactoryRepository {
             phone_number: true,
           }
         },
-        agent_offices: {
-          select: {
-            id: true,
-            office_code: true,
-            office_name: true,
-          }
-        }
       },
       orderBy: {
         created_at: 'desc'
@@ -347,15 +308,6 @@ export class FactoryRepository {
             last_name: true,
             email: true,
             phone_number: true,
-          }
-        },
-        agent_offices: {
-          select: {
-            id: true,
-            office_code: true,
-            office_name: true,
-            city: true,
-            province: true,
           }
         }
       }

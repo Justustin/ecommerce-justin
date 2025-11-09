@@ -194,27 +194,6 @@ router.get('/', controller.getFactories);
 
 /**
  * @swagger
- * /api/factories/{id}:
- *   get:
- *     tags: [Factories]
- *     summary: Get factory by ID
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: Factory details
- *       404:
- *         description: Factory not found
- */
-router.get('/:id', controller.getFactoryById);
-
-/**
- * @swagger
  * /api/factories/code/{code}:
  *   get:
  *     tags: [Factories]
@@ -252,6 +231,27 @@ router.get('/code/:code', controller.getFactoryByCode);
  *         description: List of factories owned by the user
  */
 router.get('/owner/:ownerId', controller.getFactoriesByOwner);
+
+/**
+ * @swagger
+ * /api/factories/{id}:
+ *   get:
+ *     tags: [Factories]
+ *     summary: Get factory by ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Factory details
+ *       404:
+ *         description: Factory not found
+ */
+router.get('/:id', controller.getFactoryById);
 
 /**
  * @swagger

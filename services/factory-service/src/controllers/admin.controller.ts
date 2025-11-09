@@ -14,35 +14,40 @@ export class AdminController {
       }
 
       const {
+        ownerId,
+        factoryCode,
         factoryName,
-        ownerName,
+        phoneNumber,
         email,
-        phone,
-        address,
-        city,
         province,
+        city,
+        district,
         postalCode,
+        addressLine,
         description,
-        certifications,
-        minimumOrderValue,
-        productionCapacityPerMonth
+        businessLicenseNumber,
+        taxId,
+        logoUrl
       } = req.body;
 
       const factory = await prisma.factories.create({
         data: {
+          owner_id: ownerId,
+          factory_code: factoryCode,
           factory_name: factoryName,
-          owner_name: ownerName,
-          email,
-          phone,
-          address,
-          city,
+          phone_number: phoneNumber,
+          email: email || null,
           province,
-          postal_code: postalCode,
-          description,
-          certifications,
-          minimum_order_value: minimumOrderValue,
-          production_capacity_per_month: productionCapacityPerMonth,
-          verification_status: 'pending' // Requires admin verification
+          city,
+          district,
+          postal_code: postalCode || null,
+          address_line: addressLine,
+          description: description || null,
+          business_license_number: businessLicenseNumber || null,
+          tax_id: taxId || null,
+          logo_url: logoUrl || null,
+          verification_status: 'pending',
+          status: 'pending'
         }
       });
 
@@ -51,6 +56,14 @@ export class AdminController {
         data: factory
       });
     } catch (error: any) {
+      // Handle unique constraint violations
+      if (error.code === 'P2002') {
+        const field = error.meta?.target?.[0];
+        return res.status(409).json({
+          error: `${field} already exists`,
+          field: field
+        });
+      }
       res.status(400).json({ error: error.message });
     }
   };
@@ -69,31 +82,38 @@ export class AdminController {
       const {
         factoryName,
         description,
-        address,
+        addressLine,
         city,
+        district,
         province,
         postalCode,
-        phone,
+        phoneNumber,
         email,
-        minimumOrderValue,
-        productionCapacityPerMonth
+        businessLicenseNumber,
+        taxId,
+        logoUrl
       } = req.body;
+
+      const updateData: any = {
+        updated_at: new Date()
+      };
+
+      if (factoryName !== undefined) updateData.factory_name = factoryName;
+      if (description !== undefined) updateData.description = description;
+      if (addressLine !== undefined) updateData.address_line = addressLine;
+      if (city !== undefined) updateData.city = city;
+      if (district !== undefined) updateData.district = district;
+      if (province !== undefined) updateData.province = province;
+      if (postalCode !== undefined) updateData.postal_code = postalCode;
+      if (phoneNumber !== undefined) updateData.phone_number = phoneNumber;
+      if (email !== undefined) updateData.email = email;
+      if (businessLicenseNumber !== undefined) updateData.business_license_number = businessLicenseNumber;
+      if (taxId !== undefined) updateData.tax_id = taxId;
+      if (logoUrl !== undefined) updateData.logo_url = logoUrl;
 
       const factory = await prisma.factories.update({
         where: { id },
-        data: {
-          factory_name: factoryName,
-          description,
-          address,
-          city,
-          province,
-          postal_code: postalCode,
-          phone,
-          email,
-          minimum_order_value: minimumOrderValue,
-          production_capacity_per_month: productionCapacityPerMonth,
-          updated_at: new Date()
-        }
+        data: updateData
       });
 
       res.json({
@@ -101,6 +121,9 @@ export class AdminController {
         data: factory
       });
     } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Factory not found' });
+      }
       res.status(400).json({ error: error.message });
     }
   };
@@ -135,26 +158,26 @@ export class AdminController {
       }
 
       const { id } = req.params;
-      const { verificationNotes, verifiedBy } = req.body;
+      const { verifiedBy } = req.body;
 
       const factory = await prisma.factories.update({
         where: { id },
         data: {
           verification_status: 'verified',
           verified_at: new Date(),
-          verification_notes: verificationNotes,
+          verified_by: verifiedBy,
           updated_at: new Date()
         }
       });
 
       res.json({
         message: 'Factory verified successfully',
-        data: {
-          factory,
-          verifiedBy
-        }
+        data: factory
       });
     } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Factory not found' });
+      }
       res.status(400).json({ error: error.message });
     }
   };
@@ -175,8 +198,7 @@ export class AdminController {
       const factory = await prisma.factories.update({
         where: { id },
         data: {
-          verification_status: 'suspended',
-          verification_notes: `Suspended: ${reason}. Duration: ${suspensionDuration}`,
+          status: 'suspended',
           updated_at: new Date()
         }
       });
@@ -192,6 +214,9 @@ export class AdminController {
         }
       });
     } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Factory not found' });
+      }
       res.status(400).json({ error: error.message });
     }
   };
@@ -207,13 +232,11 @@ export class AdminController {
       }
 
       const { id } = req.params;
-      const { notes } = req.body;
 
       const factory = await prisma.factories.update({
         where: { id },
         data: {
-          verification_status: 'verified',
-          verification_notes: `Reactivated: ${notes}`,
+          status: 'active',
           updated_at: new Date()
         }
       });
@@ -223,6 +246,9 @@ export class AdminController {
         data: factory
       });
     } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Factory not found' });
+      }
       res.status(400).json({ error: error.message });
     }
   };

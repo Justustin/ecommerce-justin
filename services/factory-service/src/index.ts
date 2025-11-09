@@ -11,6 +11,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3003;
 
+// CORS configuration
+app.use(cors());
+
 app.use(express.json());
 
 // Swagger Documentation
@@ -34,6 +37,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 product-service running on port ${PORT}`);
+  console.log(`🚀 factory-service running on port ${PORT}`);
   console.log(`📚 Swagger docs available at http://localhost:${PORT}/api-docs`);
 });
