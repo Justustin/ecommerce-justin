@@ -5,6 +5,7 @@ import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger';
 import productRoutes from './routes/product.routes';
 import categoryRoutes from './routes/category.routes';
+import adminRoutes from './routes/admin.routes';
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.get('/health', (req, res) => {
 // Routes
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

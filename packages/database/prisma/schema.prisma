@@ -450,11 +450,10 @@ model product_variants {
   group_participants         group_participants[]
   order_items                order_items[]
   products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  grosir_variant_allocations grosir_variant_allocations[]  // DEPRECATED
-  grosir_bundle_config       grosir_bundle_config[]        // NEW: Factory bundle composition
-  grosir_warehouse_tolerance grosir_warehouse_tolerance[]  // NEW: Warehouse tolerance config
-  seller_inventory_variants  seller_inventory_variants[]   // NEW: Seller variant inventory
-  seller_stock_movements     seller_stock_movements[]      // NEW: Stock movements
+  grosir_bundle_config       grosir_bundle_config[]        // Factory bundle composition
+  grosir_warehouse_tolerance grosir_warehouse_tolerance[]  // Warehouse tolerance config
+  seller_inventory_variants  seller_inventory_variants[]   // Seller variant inventory
+  seller_stock_movements     seller_stock_movements[]      // Stock movements
   warehouse_inventory        warehouse_inventory[]
   warehouse_purchase_orders  warehouse_purchase_orders[]
 
@@ -462,23 +461,7 @@ model product_variants {
   @@index([sku], map: "idx_product_variants_sku")
 }
 
-/// DEPRECATED: Old grosir allocation system - use grosir_bundle_config instead
-/// Stores grosir (wholesale) variant allocations per product
-model grosir_variant_allocations {
-  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id          String            @db.Uuid
-  variant_id          String?           @db.Uuid
-  allocation_quantity Int
-  created_at          DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime          @default(now()) @db.Timestamptz(6)
-  products            products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_grosir_allocations_product")
-  product_variants    product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_grosir_allocations_variant")
-
-  @@unique([product_id, variant_id], map: "uq_product_variant")
-  @@index([product_id], map: "idx_grosir_allocations_product")
-}
-
-/// NEW: Factory bundle composition - how many units of each variant per bundle
+/// Factory bundle composition - how many units of each variant per bundle
 /// Example: Bundle = 2S + 5M + 4L + 1XL (12 total)
 model grosir_bundle_config {
   id               String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
@@ -546,10 +529,9 @@ model products {
   product_images             product_images[]
   product_reviews            product_reviews[]
   product_variants           product_variants[]
-  grosir_variant_allocations grosir_variant_allocations[]  // DEPRECATED
-  grosir_bundle_config       grosir_bundle_config[]        // NEW: Factory bundle composition
-  grosir_warehouse_tolerance grosir_warehouse_tolerance[]  // NEW: Warehouse tolerance config
-  seller_inventory           seller_inventory[]            // NEW: Seller inventory
+  grosir_bundle_config       grosir_bundle_config[]        // Factory bundle composition
+  grosir_warehouse_tolerance grosir_warehouse_tolerance[]  // Warehouse tolerance config
+  seller_inventory           seller_inventory[]            // Seller inventory
   warehouse_inventory        warehouse_inventory[]
   warehouse_purchase_orders  warehouse_purchase_orders[]
   categories                 categories                    @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

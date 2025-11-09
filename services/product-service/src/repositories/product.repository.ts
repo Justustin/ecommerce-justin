@@ -196,20 +196,40 @@ export class ProductRepository {
       }
     });
   }
+
+  async updateVariant(variantId: string, data: Partial<CreateVariantDTO>) {
+    return prisma.product_variants.update({
+      where: { id: variantId },
+      data: {
+        sku: data.sku,
+        variant_name: data.variantName,
+        price_adjustment: data.priceAdjustment,
+        stock_quantity: data.stockQuantity,
+        updated_at: new Date()
+      }
+    });
+  }
+
+  async deleteVariant(variantId: string) {
+    return prisma.product_variants.delete({
+      where: { id: variantId }
+    });
+  }
+
   async findVariantById(variantId: string) {
-  return prisma.product_variants.findUnique({
-    where: { id: variantId },
-    include: {
-      products: {
-        select: {
-          id: true,
-          name: true,
-          sku: true,
-          factory_id: true,
-          base_price: true
+    return prisma.product_variants.findUnique({
+      where: { id: variantId },
+      include: {
+        products: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            factory_id: true,
+            base_price: true
+          }
         }
       }
-    }
-  });
-}
+    });
+  }
 }
