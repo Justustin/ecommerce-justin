@@ -52,25 +52,39 @@ cd packages/database
 psql $DATABASE_URL -f prisma/migrations/20251110_add_two_leg_shipping/migration.sql
 ```
 
-#### 2. Factory Service Admin API
+#### 2. Warehouse Service Admin API
+**Files:**
+- `services/warehouse-service/src/controllers/admin.controller.ts`
+- `services/warehouse-service/src/routes/admin.routes.ts`
+
+**New Endpoints:**
+- ✅ `POST /api/admin/warehouse/locations` - Create warehouse location
+- ✅ `GET /api/admin/warehouse/locations` - List warehouse locations
+- ✅ `GET /api/admin/warehouse/locations/{id}` - Get warehouse details
+- ✅ `PUT /api/admin/warehouse/locations/{id}` - Update warehouse location
+- ✅ `DELETE /api/admin/warehouse/locations/{id}` - Delete warehouse location
+
+**Testing via Swagger:**
+```
+http://localhost:[warehouse-port]/api-docs  (Warehouse Service)
+Tag: "Admin - Warehouse Locations"
+```
+
+#### 3. Factory Service - Assign Warehouse
 **Files:**
 - `services/factory-service/src/controllers/admin.controller.ts`
 - `services/factory-service/src/routes/admin.routes.ts`
 
-**New Endpoints:**
-- ✅ `POST /api/admin/warehouses` - Create warehouse
-- ✅ `GET /api/admin/warehouses` - List warehouses
-- ✅ `PUT /api/admin/warehouses/{id}` - Update warehouse
-- ✅ `DELETE /api/admin/warehouses/{id}` - Delete warehouse
+**Endpoint:**
 - ✅ `POST /api/admin/factories/{id}/assign-warehouse` - Assign warehouse to factory
 
 **Testing via Swagger:**
 ```
 http://localhost:3003/api-docs  (Factory Service)
-Tag: "Admin - Warehouses"
+Tag: "Admin - Factories"
 ```
 
-#### 3. Logistics Service Pre-Order Rates
+#### 4. Logistics Service Pre-Order Rates
 **Status:** ✅ Already implemented (previous work)
 
 - `POST /api/rates` with `productId + userId` (no orderId needed)
@@ -78,7 +92,7 @@ Tag: "Admin - Warehouses"
 - Origin: Warehouse postal code
 - Destination: User's default address
 
-#### 4. Group Buying Shipping Speed Selection
+#### 5. Group Buying Shipping Speed Selection
 **Status:** ✅ Already implemented (previous work)
 
 - `GET /api/group-buying/{id}/shipping-options` - Returns grouped options (sameDay, express, regular)
@@ -356,9 +370,9 @@ cd services/payment-service && npm run dev
 
 ### Test Scenario: Complete Two-Leg Shipping Flow
 
-#### Step 1: Create Warehouse (Factory Service)
-**Endpoint:** `POST /api/admin/warehouses`
-**Swagger:** Factory Service → Tag: "Admin - Warehouses"
+#### Step 1: Create Warehouse (Warehouse Service)
+**Endpoint:** `POST /api/admin/warehouse/locations`
+**Swagger:** Warehouse Service → Tag: "Admin - Warehouse Locations"
 
 **Request:**
 ```json
