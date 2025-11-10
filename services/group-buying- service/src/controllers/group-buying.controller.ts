@@ -80,6 +80,33 @@ export class GroupBuyingController {
     }
   };
 
+  getShippingOptions = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { userId, quantity, variantId } = req.query;
+
+      if (!userId || !quantity) {
+        return res.status(400).json({
+          error: 'userId and quantity are required query parameters'
+        });
+      }
+
+      const options = await this.service.getShippingOptions(
+        id,
+        userId as string,
+        parseInt(quantity as string),
+        variantId as string | undefined
+      );
+
+      res.json({
+        message: 'Shipping options retrieved successfully',
+        data: options
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
   joinSession = async (req: Request, res: Response) => {
     try {
       const errors = validationResult(req);

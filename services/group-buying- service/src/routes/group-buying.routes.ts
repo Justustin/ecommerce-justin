@@ -347,10 +347,128 @@ router.patch(
 
 /**
  * @swagger
+ * /api/group-buying/{id}/shipping-options:
+ *   get:
+ *     tags: [Participants]
+ *     summary: Get shipping options grouped by delivery speed
+ *     description: |
+ *       Call this BEFORE joining session to show user shipping choices.
+ *       Returns 3 shipping speed categories: same day, express (1-2 days), regular (2-3+ days).
+ *       Each category shows the cheapest courier option.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Group session ID
+ *       - in: query
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: User ID (to fetch default shipping address)
+ *       - in: query
+ *         name: quantity
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Quantity user wants to order
+ *       - in: query
+ *         name: variantId
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Product variant ID (optional)
+ *     responses:
+ *       200:
+ *         description: Shipping options grouped by speed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     sameDay:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         courier_name:
+ *                           type: string
+ *                         courier_service_name:
+ *                           type: string
+ *                         price:
+ *                           type: number
+ *                         duration:
+ *                           type: string
+ *                     express:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         courier_name:
+ *                           type: string
+ *                         courier_service_name:
+ *                           type: string
+ *                         price:
+ *                           type: number
+ *                         duration:
+ *                           type: string
+ *                     regular:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         courier_name:
+ *                           type: string
+ *                         courier_service_name:
+ *                           type: string
+ *                         price:
+ *                           type: number
+ *                         duration:
+ *                           type: string
+ *                     productPrice:
+ *                       type: number
+ *                       description: Product price for this quantity
+ *                     gatewayFeePercentage:
+ *                       type: number
+ *                       description: Payment gateway fee percentage
+ *             example:
+ *               message: "Shipping options retrieved successfully"
+ *               data:
+ *                 sameDay: null
+ *                 express:
+ *                   courier_name: "JNE"
+ *                   courier_service_name: "YES"
+ *                   price: 25000
+ *                   duration: "1-2 days"
+ *                 regular:
+ *                   courier_name: "SiCepat"
+ *                   courier_service_name: "REG"
+ *                   price: 15000
+ *                   duration: "2-3 days"
+ *                 productPrice: 500000
+ *                 gatewayFeePercentage: 3
+ *       400:
+ *         description: Bad request (missing parameters or shipping unavailable)
+ */
+router.get('/:id/shipping-options', controller.getShippingOptions);
+
+/**
+ * @swagger
  * /api/group-buying/{id}/join:
  *   post:
  *     tags: [Participants]
- *     summary: Join a group buying session
+ *     summary: Join a group buying session with selected shipping
+ *     description: |
+ *       User must have called /shipping-options first to get available options.
+ *       selectedShipping must match one of the options returned by /shipping-options.
  *     parameters:
  *       - in: path
  *         name: id
@@ -369,6 +487,7 @@ router.patch(
  *               - quantity
  *               - unitPrice
  *               - totalPrice
+ *               - selectedShipping
  *             properties:
  *               userId:
  *                 type: string
@@ -385,12 +504,38 @@ router.patch(
  *               totalPrice:
  *                 type: number
  *                 minimum: 0.01
+ *               selectedShipping:
+ *                 type: object
+ *                 required:
+ *                   - type
+ *                   - courierName
+ *                   - courierService
+ *                   - price
+ *                   - duration
+ *                 properties:
+ *                   type:
+ *                     type: string
+ *                     enum: [sameDay, express, regular]
+ *                   courierName:
+ *                     type: string
+ *                   courierService:
+ *                     type: string
+ *                   price:
+ *                     type: number
+ *                   duration:
+ *                     type: string
  *             example:
  *               userId: "550e8400-e29b-41d4-a716-446655440002"
  *               quantity: 5
  *               variantId: "550e8400-e29b-41d4-a716-446655440003"
- *               unitPrice: 100.50
- *               totalPrice: 502.50
+ *               unitPrice: 100000
+ *               totalPrice: 500000
+ *               selectedShipping:
+ *                 type: "express"
+ *                 courierName: "JNE"
+ *                 courierService: "YES"
+ *                 price: 25000
+ *                 duration: "1-2 days"
  *     responses:
  *       201:
  *         description: Successfully joined session
@@ -402,9 +547,31 @@ router.patch(
  *                 message:
  *                   type: string
  *                 data:
- *                   $ref: '#/components/schemas/Participant'
+ *                   type: object
+ *                   properties:
+ *                     participant:
+ *                       $ref: '#/components/schemas/Participant'
+ *                     payment:
+ *                       type: object
+ *                     paymentUrl:
+ *                       type: string
+ *                     invoiceId:
+ *                       type: string
+ *                     breakdown:
+ *                       type: object
+ *                       properties:
+ *                         productPrice:
+ *                           type: number
+ *                         shippingCost:
+ *                           type: number
+ *                         gatewayFee:
+ *                           type: number
+ *                         totalAmount:
+ *                           type: number
+ *                         selectedCourier:
+ *                           type: object
  *       400:
- *         description: Bad request (e.g., invalid data)
+ *         description: Bad request (e.g., invalid data or missing shipping selection)
  */
 router.post(
   '/:id/join',
@@ -415,6 +582,12 @@ router.post(
     body('unitPrice').isFloat({ min: 0.01 }).withMessage('Unit price must be greater than 0'),
     body('totalPrice').isFloat({ min: 0.01 }).withMessage('Total price must be greater than 0'),
     body('variantId').optional({ nullable: true }).isUUID(),
+    body('selectedShipping').notEmpty().withMessage('Shipping selection is required'),
+    body('selectedShipping.type').isIn(['sameDay', 'express', 'regular']).withMessage('Invalid shipping type'),
+    body('selectedShipping.courierName').notEmpty().withMessage('Courier name is required'),
+    body('selectedShipping.courierService').notEmpty().withMessage('Courier service is required'),
+    body('selectedShipping.price').isFloat({ min: 0 }).withMessage('Shipping price must be a number'),
+    body('selectedShipping.duration').notEmpty().withMessage('Shipping duration is required'),
   ],
   controller.joinSession
 );

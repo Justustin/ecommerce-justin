@@ -160,6 +160,118 @@ export class GroupBuyingService {
         // Add computed statistics for total quantity
         return this.enrichSessionWithStats(session)
     }
+
+    /**
+     * Get shipping options grouped by delivery speed
+     * Called by frontend BEFORE user joins session to show shipping choices
+     */
+    async getShippingOptions(sessionId: string, userId: string, quantity: number, variantId?: string) {
+        const session = await this.repository.findById(sessionId);
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        try {
+            const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL || 'http://localhost:3008';
+
+            logger.info('Fetching shipping options for group buying preview', {
+                sessionId,
+                productId: session.product_id,
+                variantId,
+                quantity,
+                userId
+            });
+
+            const ratesResponse = await axios.post(`${logisticsServiceUrl}/api/rates`, {
+                productId: session.product_id,
+                variantId: variantId,
+                quantity: quantity,
+                userId: userId,
+                couriers: 'jne,jnt,sicepat,anteraja'
+            });
+
+            if (!ratesResponse.data.success || !ratesResponse.data.data.pricing || ratesResponse.data.data.pricing.length === 0) {
+                throw new Error('No shipping rates available');
+            }
+
+            const allRates = ratesResponse.data.data.pricing;
+
+            // Group rates by delivery time
+            const grouped = this.groupShippingBySpeed(allRates);
+
+            logger.info('Shipping options grouped successfully', {
+                sessionId,
+                sameDay: grouped.sameDay?.courier_name,
+                express: grouped.express?.courier_name,
+                regular: grouped.regular?.courier_name
+            });
+
+            return {
+                sameDay: grouped.sameDay,
+                express: grouped.express,
+                regular: grouped.regular,
+                productPrice: quantity * Number(session.group_price),
+                gatewayFeePercentage: 3 // 3% gateway fee
+            };
+
+        } catch (error: any) {
+            logger.error('Failed to fetch shipping options', {
+                sessionId,
+                error: error.message
+            });
+            throw new Error(`Unable to fetch shipping options: ${error.message}`);
+        }
+    }
+
+    /**
+     * Helper: Group shipping rates by delivery speed
+     * Returns cheapest option in each category
+     */
+    private groupShippingBySpeed(rates: any[]) {
+        // Parse duration string to extract max days
+        const parseDuration = (duration: string): number => {
+            // Duration examples: "1-2 days", "2-3 days", "Same Day", "1 day"
+            const match = duration.match(/(\d+)(?:-(\d+))?\s*(?:day|hari)/i);
+            if (match) {
+                // If range like "2-3", use max (3)
+                return match[2] ? parseInt(match[2]) : parseInt(match[1]);
+            }
+            // Same day = 0
+            if (/same\s*day|hari\s*ini/i.test(duration)) {
+                return 0;
+            }
+            // Default to regular if can't parse
+            return 3;
+        };
+
+        const sameDay: any[] = [];
+        const express: any[] = []; // 1-2 days
+        const regular: any[] = []; // 2-3+ days
+
+        for (const rate of rates) {
+            const maxDays = parseDuration(rate.duration);
+
+            if (maxDays === 0) {
+                sameDay.push(rate);
+            } else if (maxDays <= 2) {
+                express.push(rate);
+            } else {
+                regular.push(rate);
+            }
+        }
+
+        // Pick cheapest in each category
+        const pickCheapest = (category: any[]) => {
+            if (category.length === 0) return null;
+            return category.reduce((min, rate) => rate.price < min.price ? rate : min);
+        };
+
+        return {
+            sameDay: pickCheapest(sameDay),
+            express: pickCheapest(express),
+            regular: pickCheapest(regular)
+        };
+    }
     async listSessions(filters: GroupSessionFilters) {
         return this.repository.findAll(filters)
     }
@@ -255,57 +367,25 @@ export class GroupBuyingService {
             throw new Error(`Total price must be ${calculatedTotal} for quantity ${data.quantity}`)
         }
 
-        // SHIPPING INTEGRATION: Calculate shipping cost BEFORE creating participant
-        let shippingCost = 0;
-        let selectedCourier = null;
-
-        try {
-            const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL || 'http://localhost:3008';
-
-            logger.info('Calculating shipping cost for group buying session', {
-                sessionId: data.groupSessionId,
-                productId: session.product_id,
-                variantId: data.variantId,
-                quantity: data.quantity,
-                userId: data.userId
-            });
-
-            const ratesResponse = await axios.post(`${logisticsServiceUrl}/api/rates`, {
-                productId: session.product_id,
-                variantId: data.variantId,
-                quantity: data.quantity,
-                userId: data.userId,
-                couriers: 'jne,jnt,sicepat'
-            });
-
-            if (ratesResponse.data.success && ratesResponse.data.data.pricing && ratesResponse.data.data.pricing.length > 0) {
-                // Use cheapest courier option
-                const rates = ratesResponse.data.data.pricing;
-                const cheapestRate = rates.reduce((min: any, rate: any) =>
-                    rate.price < min.price ? rate : min
-                );
-                shippingCost = cheapestRate.price;
-                selectedCourier = {
-                    name: cheapestRate.courier_name,
-                    service: cheapestRate.courier_service_name,
-                    duration: cheapestRate.duration
-                };
-
-                logger.info('Shipping cost calculated', {
-                    sessionId: data.groupSessionId,
-                    shippingCost,
-                    courier: selectedCourier
-                });
-            }
-        } catch (error: any) {
-            logger.error('Failed to calculate shipping cost', {
-                sessionId: data.groupSessionId,
-                error: error.message
-            });
-            logger.warn('⚠️  Continuing without shipping cost - will need to be added later');
-            // Optionally throw error here if shipping cost is mandatory
-            // throw new Error('Unable to calculate shipping cost. Please ensure you have a default shipping address set.');
+        // SHIPPING INTEGRATION: Validate and use user's selected shipping option
+        // User must have called getShippingOptions() first and selected one
+        if (!data.selectedShipping) {
+            throw new Error('Shipping option must be selected. Please choose a shipping method first.');
         }
+
+        const shippingCost = data.selectedShipping.price || 0;
+        const selectedCourier = {
+            name: data.selectedShipping.courierName,
+            service: data.selectedShipping.courierService,
+            duration: data.selectedShipping.duration,
+            type: data.selectedShipping.type // 'sameDay', 'express', or 'regular'
+        };
+
+        logger.info('Using user-selected shipping option', {
+            sessionId: data.groupSessionId,
+            shippingCost,
+            courier: selectedCourier
+        });
 
         // Calculate payment gateway fee (Xendit charges ~3% for e-wallet)
         const productPrice = data.totalPrice;

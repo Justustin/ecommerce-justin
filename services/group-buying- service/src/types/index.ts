@@ -29,9 +29,18 @@ export interface JoinGroupDTO {
   groupSessionId: string;
   userId: string;
   quantity: number;
-  variantId?: string;              
-  unitPrice: number;              
-  totalPrice: number;               
+  variantId?: string;
+  unitPrice: number;
+  totalPrice: number;
+  // SHIPPING SELECTION: User's chosen shipping option (from getShippingOptions)
+  selectedShipping?: {
+    type: 'sameDay' | 'express' | 'regular';
+    courierName: string;
+    courierService: string;
+    price: number;
+    duration: string;
+  };
+  metadata?: any;
 }
 
 export interface GroupSessionFilters {
