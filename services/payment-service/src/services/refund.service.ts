@@ -4,6 +4,7 @@ import { PaymentRepository } from '../repositories/payment.repository';
 import { TransactionLedgerService } from './transaction-ledger.service';
 import { CreateRefundDTO } from '../types';
 import { notificationClient } from '../clients/notification.client';
+import { xenditRefundClient } from '../config/xendit';
 
 export class RefundService {
   private refundRepo: RefundRepository;
@@ -168,21 +169,33 @@ export class RefundService {
   }
 
   private async processEwalletRefund(payment: any, refund: any) {
-    // TODO: Implement actual Xendit e-wallet refund API call
-    // For now, simulate successful refund
-    console.log('Processing e-wallet refund:', {
+    // CRITICAL FIX: Use real Xendit refund API
+    console.log('Processing e-wallet refund via Xendit:', {
       paymentId: payment.id,
       refundId: refund.id,
       amount: refund.refund_amount
     });
 
-    return {
-      status: 'SUCCESS',
-      refund_id: `xendit-ewallet-refund-${Date.now()}`,
-      amount: refund.refund_amount,
-      method: 'ewallet',
-      processed_at: new Date().toISOString()
-    };
+    try {
+      // Create refund via Xendit API
+      const xenditRefund = await xenditRefundClient.createRefund({
+        invoice: payment.gateway_transaction_id,
+        reason: refund.refund_reason || 'REQUESTED_BY_CUSTOMER',
+        amount: Number(refund.refund_amount)
+      });
+
+      return {
+        status: xenditRefund.status || 'PENDING',
+        refund_id: xenditRefund.id,
+        amount: xenditRefund.amount,
+        method: 'ewallet',
+        processed_at: xenditRefund.created || new Date().toISOString(),
+        gateway_response: xenditRefund
+      };
+    } catch (error: any) {
+      console.error('Xendit refund failed:', error);
+      throw new Error(`Xendit refund failed: ${error.message}`);
+    }
   }
 
   private async processBankRefund(payment: any, refund: any) {
@@ -195,24 +208,36 @@ export class RefundService {
       }
     });
 
-    // TODO: Implement actual bank refund processing
-    // Bank refunds typically require manual processing
-    console.log('Processing bank refund:', {
+    // CRITICAL FIX: Use real Xendit refund API for bank transfers
+    console.log('Processing bank refund via Xendit:', {
       paymentId: payment.id,
       refundId: refund.id,
       amount: refund.refund_amount,
       recipient: `${user?.first_name} ${user?.last_name || ''}`
     });
 
-    return {
-      status: 'PENDING_MANUAL_REVIEW',
-      refund_id: `bank-refund-${Date.now()}`,
-      amount: refund.refund_amount,
-      method: 'bank_transfer',
-      recipient: `${user?.first_name} ${user?.last_name || ''}`,
-      processed_at: new Date().toISOString(),
-      note: 'Bank refunds require manual processing'
-    };
+    try {
+      // Create refund via Xendit API
+      const xenditRefund = await xenditRefundClient.createRefund({
+        invoice: payment.gateway_transaction_id,
+        reason: refund.refund_reason || 'REQUESTED_BY_CUSTOMER',
+        amount: Number(refund.refund_amount)
+      });
+
+      return {
+        status: xenditRefund.status || 'PENDING',
+        refund_id: xenditRefund.id,
+        amount: xenditRefund.amount,
+        method: 'bank_transfer',
+        recipient: `${user?.first_name} ${user?.last_name || ''}`,
+        processed_at: xenditRefund.created || new Date().toISOString(),
+        gateway_response: xenditRefund,
+        note: 'Bank refunds processed via Xendit - may take 1-3 business days'
+      };
+    } catch (error: any) {
+      console.error('Xendit bank refund failed:', error);
+      throw new Error(`Xendit refund failed: ${error.message}`);
+    }
   }
 
   private async updatePaymentAfterRefund(paymentId: string, refundAmount: number) {

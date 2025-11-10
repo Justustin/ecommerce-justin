@@ -2,13 +2,39 @@ import crypto from 'crypto';
 
 export class CryptoUtils {
   /**
-   * Verify Xendit callback token
+   * Verify Xendit callback using HMAC-SHA256
+   * CRITICAL: Uses Xendit's official webhook validation method
+   *
+   * @param payload - The webhook payload as JSON string
+   * @param webhookToken - The x-callback-token header from Xendit
+   * @param secret - Your Xendit webhook verification token
+   * @returns boolean indicating if signature is valid
    */
   static verifyXenditCallback(
-    callbackToken: string,
-    receivedToken: string
+    payload: string,
+    webhookToken: string,
+    secret: string
   ): boolean {
-    return callbackToken === receivedToken;
+    if (!secret || !webhookToken) {
+      return false;
+    }
+
+    // Xendit uses HMAC-SHA256 for webhook verification
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(payload)
+      .digest('hex');
+
+    // Use timing-safe comparison to prevent timing attacks
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(webhookToken),
+        Buffer.from(expectedSignature)
+      );
+    } catch (error) {
+      // timingSafeEqual throws if lengths don't match
+      return false;
+    }
   }
 
   /**

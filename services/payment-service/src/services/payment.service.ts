@@ -29,14 +29,15 @@ export class PaymentService {
     const userEmail = user.email || this.generatePlaceholderEmail(user.phone_number);
 
     // Xendit v7.x API structure
+    // CRITICAL FIX: invoiceDuration must be a number (seconds), not string
     const invoiceData: CreateInvoiceRequest = {
       externalId: `order-${data.orderId}-${Date.now()}`,
       amount: data.amount,
       payerEmail: userEmail,
       description: `Payment for order ${data.orderId}`,
-      invoiceDuration: expiresAt 
-        ? Math.floor((expiresAt.getTime() - Date.now()) / 1000).toString()
-        : '86400',
+      invoiceDuration: expiresAt
+        ? Math.floor((expiresAt.getTime() - Date.now()) / 1000)
+        : 86400, // 24 hours in seconds
       currency: 'IDR',
       shouldSendEmail: Boolean(user.email),
       customer: {
@@ -161,14 +162,15 @@ async handlePaidCallback(callbackData: any) {
       }
     }
 
+    // CRITICAL FIX: invoiceDuration must be a number (seconds), not string
     const invoiceData: CreateInvoiceRequest = {
       externalId: `escrow-${data.groupSessionId}-${data.participantId}-${Date.now()}`,
       amount: data.amount,
       payerEmail: userEmail,
       description: `Escrow payment for group buying session`,
       invoiceDuration: expiresAt
-        ? Math.floor((expiresAt.getTime() - Date.now()) / 1000).toString()
-        : '86400',
+        ? Math.floor((expiresAt.getTime() - Date.now()) / 1000)
+        : 86400, // 24 hours in seconds
       currency: 'IDR',
       shouldSendEmail: Boolean(user.email),
       customer: {
