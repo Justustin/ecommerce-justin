@@ -11,3 +11,4 @@ export const xenditClient = new Xendit({
 });
 
 export const xenditInvoiceClient = xenditClient.Invoice;
+export const xenditRefundClient = xenditClient.Refund;

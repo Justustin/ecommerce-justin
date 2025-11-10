@@ -123,7 +123,7 @@ if (enableExpiration) {
 const server = app.listen(PORT, () => {
   console.log('='.repeat(50));
   console.log(`💳 Payment Service`);
-    console.log(`🚀 product-service running on port ${PORT}`);
+  console.log(`🚀 Payment Service running on port ${PORT}`);
   console.log(`📚 Swagger docs available at http://localhost:${PORT}/api-docs`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📊 Database: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
