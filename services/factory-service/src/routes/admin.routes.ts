@@ -425,4 +425,198 @@ router.get(
   controller.getFactoryAnalytics
 );
 
+// ============================================================================
+// WAREHOUSE MANAGEMENT (Two-Leg Shipping)
+// ============================================================================
+
+/**
+ * @swagger
+ * /api/admin/warehouses:
+ *   post:
+ *     tags: [Admin - Warehouses]
+ *     summary: Create a new warehouse
+ *     description: Create warehouse for receiving bulk shipments from factories (Leg 1 destination, Leg 2 origin)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - addressLine
+ *               - city
+ *               - postalCode
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Jakarta Central Warehouse"
+ *               addressLine:
+ *                 type: string
+ *               city:
+ *                 type: string
+ *               province:
+ *                 type: string
+ *               postalCode:
+ *                 type: integer
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Warehouse created successfully
+ *       400:
+ *         description: Validation error
+ */
+router.post(
+  '/warehouses',
+  [
+    body('name').notEmpty().trim(),
+    body('addressLine').notEmpty().trim(),
+    body('city').notEmpty().trim(),
+    body('province').optional().trim(),
+    body('postalCode').isInt(),
+    body('notes').optional().trim()
+  ],
+  controller.createWarehouse
+);
+
+/**
+ * @swagger
+ * /api/admin/warehouses:
+ *   get:
+ *     tags: [Admin - Warehouses]
+ *     summary: List all warehouses
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Warehouses retrieved successfully
+ */
+router.get(
+  '/warehouses',
+  [
+    query('page').optional().isInt(),
+    query('limit').optional().isInt()
+  ],
+  controller.listWarehouses
+);
+
+/**
+ * @swagger
+ * /api/admin/warehouses/{id}:
+ *   put:
+ *     tags: [Admin - Warehouses]
+ *     summary: Update warehouse details
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Warehouse updated successfully
+ *       404:
+ *         description: Warehouse not found
+ */
+router.put(
+  '/warehouses/:id',
+  [
+    param('id').isUUID(),
+    body('name').optional().trim(),
+    body('addressLine').optional().trim(),
+    body('city').optional().trim(),
+    body('province').optional().trim(),
+    body('postalCode').optional().isInt(),
+    body('notes').optional().trim()
+  ],
+  controller.updateWarehouse
+);
+
+/**
+ * @swagger
+ * /api/admin/warehouses/{id}:
+ *   delete:
+ *     tags: [Admin - Warehouses]
+ *     summary: Delete warehouse
+ *     description: Cannot delete if warehouse is assigned to any factories
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Warehouse deleted successfully
+ *       400:
+ *         description: Cannot delete - warehouse is assigned to factories
+ *       404:
+ *         description: Warehouse not found
+ */
+router.delete(
+  '/warehouses/:id',
+  [param('id').isUUID()],
+  controller.deleteWarehouse
+);
+
+/**
+ * @swagger
+ * /api/admin/factories/{id}/assign-warehouse:
+ *   post:
+ *     tags: [Admin - Factories]
+ *     summary: Assign warehouse to factory
+ *     description: Set default warehouse for factory's bulk shipments (Leg 1 destination)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Factory ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - warehouseId
+ *             properties:
+ *               warehouseId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Warehouse assigned to factory successfully
+ *       404:
+ *         description: Factory or warehouse not found
+ */
+router.post(
+  '/:id/assign-warehouse',
+  [
+    param('id').isUUID(),
+    body('warehouseId').isUUID()
+  ],
+  controller.assignWarehouseToFactory
+);
+
 export default router;

@@ -503,4 +503,216 @@ export class AdminController {
       res.status(500).json({ error: error.message });
     }
   };
+
+  // ========================================================================
+  // WAREHOUSE MANAGEMENT (Two-Leg Shipping)
+  // ========================================================================
+
+  /**
+   * Admin: Create warehouse
+   */
+  createWarehouse = async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const {
+        name,
+        addressLine,
+        city,
+        province,
+        postalCode,
+        notes
+      } = req.body;
+
+      const warehouse = await prisma.warehouses.create({
+        data: {
+          name,
+          address_line: addressLine,
+          city,
+          province: province || null,
+          postal_code: postalCode,
+          notes: notes || null
+        }
+      });
+
+      res.status(201).json({
+        message: 'Warehouse created successfully',
+        data: warehouse
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: List all warehouses
+   */
+  listWarehouses = async (req: Request, res: Response) => {
+    try {
+      const { page = 1, limit = 50 } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const [warehouses, total] = await Promise.all([
+        prisma.warehouses.findMany({
+          skip,
+          take: Number(limit),
+          include: {
+            _count: {
+              select: {
+                factories: true,
+                group_buying_sessions: true
+              }
+            }
+          },
+          orderBy: { created_at: 'desc' }
+        }),
+        prisma.warehouses.count()
+      ]);
+
+      res.json({
+        message: 'Warehouses retrieved successfully',
+        data: warehouses,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          totalPages: Math.ceil(total / Number(limit))
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: Update warehouse
+   */
+  updateWarehouse = async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+      const {
+        name,
+        addressLine,
+        city,
+        province,
+        postalCode,
+        notes
+      } = req.body;
+
+      const updateData: any = {
+        updated_at: new Date()
+      };
+
+      if (name !== undefined) updateData.name = name;
+      if (addressLine !== undefined) updateData.address_line = addressLine;
+      if (city !== undefined) updateData.city = city;
+      if (province !== undefined) updateData.province = province;
+      if (postalCode !== undefined) updateData.postal_code = postalCode;
+      if (notes !== undefined) updateData.notes = notes;
+
+      const warehouse = await prisma.warehouses.update({
+        where: { id },
+        data: updateData
+      });
+
+      res.json({
+        message: 'Warehouse updated successfully',
+        data: warehouse
+      });
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Warehouse not found' });
+      }
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: Delete warehouse
+   */
+  deleteWarehouse = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      // Check if warehouse is assigned to any factories
+      const factoryCount = await prisma.factories.count({
+        where: { default_warehouse_id: id }
+      });
+
+      if (factoryCount > 0) {
+        return res.status(400).json({
+          error: `Cannot delete warehouse. It is assigned to ${factoryCount} factory(ies). Please reassign factories first.`
+        });
+      }
+
+      await prisma.warehouses.delete({
+        where: { id }
+      });
+
+      res.json({
+        message: 'Warehouse deleted successfully'
+      });
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Warehouse not found' });
+      }
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: Assign warehouse to factory
+   */
+  assignWarehouseToFactory = async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params; // factory ID
+      const { warehouseId } = req.body;
+
+      // Verify warehouse exists
+      const warehouse = await prisma.warehouses.findUnique({
+        where: { id: warehouseId }
+      });
+
+      if (!warehouse) {
+        return res.status(404).json({ error: 'Warehouse not found' });
+      }
+
+      const factory = await prisma.factories.update({
+        where: { id },
+        data: {
+          default_warehouse_id: warehouseId,
+          updated_at: new Date()
+        },
+        include: {
+          warehouses: true
+        }
+      });
+
+      res.json({
+        message: 'Warehouse assigned to factory successfully',
+        data: {
+          factory,
+          warehouse
+        }
+      });
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Factory not found' });
+      }
+      res.status(400).json({ error: error.message });
+    }
+  };
 }

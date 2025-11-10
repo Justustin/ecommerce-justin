@@ -69,6 +69,21 @@ model event_log {
   @@index([event_type], map: "idx_event_log_type")
 }
 
+/// Warehouses that receive bulk shipments from factories (Leg 1 destination, Leg 2 origin)
+model warehouses {
+  id                    String                  @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
+  name                  String                  @db.VarChar(255)
+  address_line          String
+  city                  String                  @db.VarChar(100)
+  province              String?                 @db.VarChar(100)
+  postal_code           Int
+  notes                 String?
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  factories             factories[]
+  group_buying_sessions group_buying_sessions[]
+}
+
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model factories {
   id                                 String                      @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
@@ -99,6 +114,8 @@ model factories {
   bank_account_number                String?                     @db.VarChar(50)
   bank_account_name                  String?                     @db.VarChar(255)
   wholesale_unit                     Int?                        @default(1)
+  default_warehouse_id               String?                     @db.Uuid
+  warehouses                         warehouses?                 @relation(fields: [default_warehouse_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users_factories_owner_idTousers    users                       @relation("factories_owner_idTousers", fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users_factories_verified_byTousers users?                      @relation("factories_verified_byTousers", fields: [verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factory_reviews                    factory_reviews[]
@@ -113,6 +130,7 @@ model factories {
   @@index([office_id], map: "idx_factories_office")
   @@index([owner_id], map: "idx_factories_owner")
   @@index([status], map: "idx_factories_status")
+  @@index([default_warehouse_id], map: "idx_factories_warehouse")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -205,6 +223,10 @@ model group_buying_sessions {
   price_tier_100            Decimal?                    @db.Decimal(15, 2)
   current_tier              Int?                        @default(25)
   bot_participant_id        String?                     @db.Uuid
+  warehouse_id              String?                     @db.Uuid
+  bulk_shipping_cost        Decimal?                    @default(0.00) @db.Decimal(12, 2)
+  bulk_shipping_cost_per_unit Decimal?                  @default(0.00) @db.Decimal(12, 2)
+  warehouses                warehouses?                 @relation(fields: [warehouse_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factories                 factories                   @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   products                  products                    @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   group_participants        group_participants[]
@@ -218,6 +240,7 @@ model group_buying_sessions {
   @@index([factory_id], map: "idx_group_sessions_factory")
   @@index([product_id], map: "idx_group_sessions_product")
   @@index([status], map: "idx_group_sessions_status")
+  @@index([warehouse_id], map: "idx_group_sessions_warehouse")
 }
 
 model group_participants {
