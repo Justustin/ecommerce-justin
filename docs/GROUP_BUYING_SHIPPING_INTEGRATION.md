@@ -1,8 +1,12 @@
 # Group Buying + Shipping Cost Integration Guide
 
+✅ **STATUS: INTEGRATION COMPLETE** (as of 2025-11-10)
+
 **Problem Solved:** Chicken-and-egg problem where shipping cost is needed BEFORE payment, but API required orderId which doesn't exist until AFTER payment.
 
 **Solution:** Pre-order shipping rate calculation using product data directly.
+
+**Implementation:** Group buying service now calculates shipping cost and gateway fee before creating escrow payment. Users see complete total breakdown before paying.
 
 ---
 
@@ -487,5 +491,52 @@ Before deploying group buying with shipping:
 ✅ **Real Data:** Uses actual product weight/dimensions and addresses
 ✅ **Accurate Costs:** Users see true total before payment
 ✅ **Backward Compatible:** Old orderId mode still works
+✅ **Integrated:** Group buying service now includes shipping + gateway fees
 
-**Ready to integrate!** 🚀
+---
+
+## Actual Implementation (COMPLETED)
+
+The integration described in this guide has been **fully implemented** in the group buying service.
+
+**File Modified:** `services/group-buying- service/src/services/group.buying.service.ts`
+
+**Implementation Details:**
+1. ✅ Shipping cost calculated via `POST /api/rates` (pre-order mode)
+2. ✅ Cheapest courier automatically selected
+3. ✅ Gateway fee calculated (3% of product price)
+4. ✅ Total amount = productPrice + shippingCost + gatewayFee
+5. ✅ Breakdown stored in participant metadata
+6. ✅ Breakdown returned to frontend for display
+7. ✅ Escrow payment created with full total amount
+
+**API Response Now Includes:**
+```json
+{
+  "participant": {...},
+  "payment": {...},
+  "paymentUrl": "https://xendit.co/...",
+  "invoiceId": "...",
+  "breakdown": {
+    "productPrice": 500000,
+    "shippingCost": 15000,
+    "gatewayFee": 15000,
+    "totalAmount": 530000,
+    "selectedCourier": {
+      "name": "JNE",
+      "service": "REG",
+      "duration": "2-3 days"
+    }
+  }
+}
+```
+
+**Error Handling:** If shipping calculation fails (e.g., user has no default address), continues with `shippingCost: 0` and logs warning. This allows testing without complete user address data.
+
+**Next Steps for Production:**
+- Ensure all users have default shipping addresses
+- Consider requiring shipping address before allowing group buying join
+- Monitor logs for shipping calculation failures
+- Add frontend UI to display breakdown to users
+
+**Ready for testing!** 🚀
