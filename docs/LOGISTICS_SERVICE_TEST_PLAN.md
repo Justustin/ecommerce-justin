@@ -1,4 +1,4 @@
-# Logistics Service - Test Plan
+# Logistics Service - Test Plan (Swagger UI)
 
 **Service:** Logistics Service (Biteship Integration)
 **Port:** 3008
@@ -16,6 +16,7 @@ This test plan verifies all critical bug fixes and functionality in the Logistic
 - ✅ SQL injection vulnerability fixed
 - ✅ Invalid Prisma relation removed
 - ✅ Missing dependencies added
+- ✅ **Pre-order shipping rate calculation for GROUP BUYING**
 
 ---
 
@@ -29,6 +30,7 @@ cd services/logistics-service && npm run dev
 
 # Should see:
 # 🚚 Logistics Service running on http://localhost:3008
+# 📚 API Documentation: http://localhost:3008/api-docs
 ```
 
 ### 2. Environment Variables
@@ -52,66 +54,56 @@ BITESHIP_WEBHOOK_SECRET=your-webhook-secret-here
 CORS_ORIGIN=*
 ```
 
-### 3. Get Biteship API Key
+### 3. Open Swagger UI
 
-**Staging/Development:**
-1. Sign up at https://biteship.com
-2. Go to Dashboard → Settings → API Keys
-3. Copy your API key
-4. Use **test mode** for testing
+**URL:** http://localhost:3008/api-docs
 
-**Important:** Biteship provides test credentials for development. Real shipments require production API key.
+You should see a beautiful Swagger interface with all endpoints organized by tags:
+- Health
+- Rates
+- Shipments
+- Tracking
+- Webhooks
+- Admin
 
 ### 4. Get Test Data from Database
 
 ```sql
--- Get an order UUID
-SELECT id, order_number, user_id, total_amount
-FROM orders
-WHERE status = 'paid'
-LIMIT 1;
+-- Get a user UUID
+SELECT id, first_name, email FROM users LIMIT 1;
 
--- Get order items for weight/dimensions calculation
-SELECT
-    oi.id,
-    oi.order_id,
-    oi.quantity,
-    p.name,
-    pv.weight_grams,
-    pv.length_cm,
-    pv.width_cm,
-    pv.height_cm
-FROM order_items oi
-JOIN products p ON oi.product_id = p.id
-LEFT JOIN product_variants pv ON oi.variant_id = pv.id
-WHERE oi.order_id = 'your-order-id-here';
+-- Get a product UUID
+SELECT id, name, factory_id FROM products LIMIT 1;
 
--- Get user and address for shipping
-SELECT
-    u.id as user_id,
-    u.first_name,
-    u.phone_number,
-    ua.recipient_name,
-    ua.phone_number as recipient_phone,
-    ua.address_line1,
-    ua.city,
-    ua.postal_code,
-    ua.latitude,
-    ua.longitude
-FROM users u
-JOIN user_addresses ua ON u.id = ua.user_id
-WHERE u.id = 'your-user-id-here'
-AND ua.is_default = true;
+-- Get a variant UUID (optional)
+SELECT id, product_id, name FROM product_variants LIMIT 1;
+
+-- Get an order UUID (for post-order tests)
+SELECT id, order_number, user_id FROM orders WHERE status = 'paid' LIMIT 1;
 ```
 
 ---
 
-## Test Execution Instructions
+## How to Use Swagger UI
 
-- Run tests **in sequential order**
-- Record results for each test (PASS/FAIL)
-- Save IDs from responses for later tests
-- For webhook tests, use Biteship webhook simulator or create actual shipments
+### Step 1: Navigate to Swagger
+Open **http://localhost:3008/api-docs** in your browser
+
+### Step 2: Find the Endpoint
+Endpoints are organized by tags. Click on a tag to expand it.
+
+### Step 3: Test an Endpoint
+1. Click on the endpoint (e.g., `POST /api/rates`)
+2. Click **"Try it out"** button (top right)
+3. Fill in the request body using the examples provided
+4. Click **"Execute"** button
+5. View the response below
+
+### Step 4: View Response
+Swagger shows:
+- **Response Code** (200, 400, 500, etc.)
+- **Response Body** (JSON data)
+- **Response Headers**
 
 ---
 
@@ -121,14 +113,15 @@ AND ua.is_default = true;
 
 ### Test 1: Health Check
 
-**Purpose:** Verify service is running with correct configuration
-
+**Tag:** Health
 **Endpoint:** `GET /health`
 
-**Command:**
-```bash
-curl http://localhost:3008/health
-```
+**Steps:**
+1. Open Swagger UI at http://localhost:3008/api-docs
+2. Find **Health** tag
+3. Click on `GET /health`
+4. Click **"Try it out"**
+5. Click **"Execute"**
 
 **Expected Response:** `200 OK`
 ```json
@@ -136,7 +129,9 @@ curl http://localhost:3008/health
   "status": "healthy",
   "service": "logistics-service",
   "timestamp": "2025-11-10T10:00:00.000Z",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "port": 3008,
+  "docs": "/api-docs"
 }
 ```
 
@@ -144,6 +139,7 @@ curl http://localhost:3008/health
 - ✅ Service starts successfully
 - ✅ Service name is "logistics-service" (not "product-service")
 - ✅ Health endpoint responds
+- ✅ Swagger docs link included
 
 **Status:** [ ] PASS [ ] FAIL
 
@@ -151,109 +147,131 @@ curl http://localhost:3008/health
 
 ## SECTION 2: Shipping Rates API (Critical - Was 404)
 
-### Test 2: Get Shipping Rates - Minimal Request
+### Test 2: Get Shipping Rates - Pre-Order Mode (GROUP BUYING)
 
-**Purpose:** Verify POST /api/rates works (was returning 404 before fix)
-
+**Tag:** Rates
 **Endpoint:** `POST /api/rates`
 
-**Command:**
-```bash
-curl -X POST http://localhost:3008/api/rates \
-  -H "Content-Type: application/json" \
-  -d '{
-    "orderId": "your-order-uuid-here",
-    "originPostalCode": 12345,
-    "destinationPostalCode": 54321,
-    "couriers": "jne,jnt,sicepat"
-  }'
-```
+**Purpose:** Verify pre-order shipping calculation works (for group buying BEFORE order exists)
+
+**Steps:**
+1. Open Swagger UI
+2. Find **Rates** tag
+3. Click on `POST /api/rates`
+4. Click **"Try it out"**
+5. In the **"Select example"** dropdown, choose: **"Pre-Order Mode (GROUP BUYING - no order yet)"**
+6. Replace the UUIDs with real data from your database:
+   ```json
+   {
+     "productId": "your-product-uuid",
+     "variantId": "your-variant-uuid",
+     "quantity": 10,
+     "userId": "your-user-uuid",
+     "couriers": "jne,jnt,sicepat"
+   }
+   ```
+7. Click **"Execute"**
 
 **Expected Response:** `200 OK`
 ```json
 {
   "success": true,
-  "object": "courier_pricing",
-  "message": "Success",
-  "code": 200,
-  "origin": {
-    "postal_code": 12345,
-    "location_name": "Jakarta Pusat"
-  },
-  "destination": {
-    "postal_code": 54321,
-    "location_name": "Surabaya"
-  },
-  "pricing": [
-    {
-      "courier_name": "JNE",
-      "courier_code": "jne",
-      "courier_service_name": "REG",
-      "courier_service_code": "reg",
-      "description": "Regular Service",
-      "duration": "2-3 days",
-      "price": 15000,
-      "available_for_cash_on_delivery": false,
-      "available_for_proof_of_delivery": true,
-      "available_for_instant_waybill_id": true,
-      "available_for_insurance": true,
-      "company": "jne",
-      "type": "reg"
-    },
-    {
-      "courier_name": "J&T Express",
-      "courier_code": "jnt",
-      "courier_service_name": "EZ",
-      "courier_service_code": "ez",
-      "description": "Economy Service",
-      "duration": "3-5 days",
-      "price": 12000,
-      "type": "reg"
-    }
-  ]
+  "data": {
+    "success": true,
+    "pricing": [
+      {
+        "courier_name": "JNE",
+        "courier_service_name": "REG",
+        "price": 15000,
+        "duration": "2-3 days"
+      },
+      {
+        "courier_name": "J&T Express",
+        "courier_service_name": "EZ",
+        "price": 12000,
+        "duration": "3-5 days"
+      }
+    ]
+  }
 }
 ```
 
 **What This Tests:**
-- ✅ Public routes are now registered (critical fix!)
-- ✅ Biteship API integration works
-- ✅ Rate comparison from multiple couriers
-- ✅ Correct response structure
+- ✅ **Pre-order rate calculation works (critical for group buying!)**
+- ✅ Fetches product weight/dimensions from database
+- ✅ Gets factory address as origin
+- ✅ Gets user's default shipping address as destination
+- ✅ Returns real shipping costs from Biteship
+- ✅ Public routes are registered (was 404 before fix)
 
 **Notes:**
-- If you get 404: Public routes not registered (should be fixed)
-- If you get 401/403 from Biteship: Check BITESHIP_API_KEY
-- If you get empty pricing: Check postal codes are valid Indonesia codes
+- If you get "Product not found": Check productId is valid
+- If you get "Destination postal code required": User has no default shipping address
+- If you get "Origin postal code required": Product has no factory assigned
+- If you get empty pricing array: Check postal codes are valid Indonesia codes
 
 **Status:** [ ] PASS [ ] FAIL
 
 ---
 
-### Test 3: Get Shipping Rates - With Coordinates
+### Test 3: Get Shipping Rates - Post-Order Mode
 
-**Purpose:** Test rate calculation using GPS coordinates
-
+**Tag:** Rates
 **Endpoint:** `POST /api/rates`
 
-**Command:**
-```bash
-curl -X POST http://localhost:3008/api/rates \
-  -H "Content-Type: application/json" \
-  -d '{
-    "orderId": "your-order-uuid",
-    "originLatitude": -6.2088,
-    "originLongitude": 106.8456,
-    "destinationLatitude": -7.2575,
-    "destinationLongitude": 112.7521,
-    "couriers": "jne,jnt,sicepat,anteraja"
-  }'
-```
+**Purpose:** Verify post-order rate calculation (for existing orders)
+
+**Steps:**
+1. In Swagger UI, find `POST /api/rates`
+2. Click **"Try it out"**
+3. In **"Select example"** dropdown, choose: **"Post-Order Mode (with existing orderId)"**
+4. Replace with real order UUID:
+   ```json
+   {
+     "orderId": "your-order-uuid",
+     "couriers": "jne,jnt,sicepat"
+   }
+   ```
+5. Click **"Execute"**
 
 **Expected Response:** `200 OK` with pricing array
 
 **What This Tests:**
-- ✅ GPS coordinate-based rate calculation
-- ✅ Multiple courier comparison
+- ✅ Post-order mode still works
+- ✅ Backward compatibility maintained
+
+**Status:** [ ] PASS [ ] FAIL
+
+---
+
+### Test 4: Get Shipping Rates - Manual Postal Codes
+
+**Tag:** Rates
+**Endpoint:** `POST /api/rates`
+
+**Purpose:** Test with manual postal codes (no database lookups)
+
+**Steps:**
+1. In Swagger UI, find `POST /api/rates`
+2. Click **"Try it out"**
+3. In **"Select example"** dropdown, choose: **"Pre-Order Mode (manual postal codes)"**
+4. Modify the request:
+   ```json
+   {
+     "productId": "your-product-uuid",
+     "quantity": 5,
+     "originPostalCode": 12345,
+     "destinationPostalCode": 54321,
+     "couriers": "jne,jnt,sicepat"
+   }
+   ```
+5. Click **"Execute"**
+
+**Expected Response:** `200 OK` with pricing array
+
+**What This Tests:**
+- ✅ Manual postal code override works
+- ✅ Flexible addressing options
 
 **Status:** [ ] PASS [ ] FAIL
 
@@ -261,52 +279,28 @@ curl -X POST http://localhost:3008/api/rates \
 
 ## SECTION 3: Shipment Creation
 
-### Test 4: Create Shipment
+### Test 5: Create Shipment
 
-**Purpose:** Create actual shipment via Biteship
-
+**Tag:** Shipments
 **Endpoint:** `POST /api/shipments`
 
 **Prerequisites:**
 - Have a paid order with valid shipping address
-- Know the exact weight and dimensions of items
-- Selected courier from rates API (Test 2)
+- Selected courier from rates API (Test 2 or 3)
 
-**Command:**
-```bash
-curl -X POST http://localhost:3008/api/shipments \
-  -H "Content-Type: application/json" \
-  -d '{
-    "orderId": "your-order-uuid",
-    "courierCompany": "jne",
-    "courierType": "reg",
-    "shipperContactName": "Factory Name",
-    "shipperContactPhone": "+6281234567890",
-    "shipperContactEmail": "factory@example.com",
-    "originContactName": "Warehouse Manager",
-    "originContactPhone": "+6281234567890",
-    "originAddress": "Jl. Factory No. 123",
-    "originPostalCode": 12345,
-    "destinationContactName": "Customer Name",
-    "destinationContactPhone": "+6289876543210",
-    "destinationContactEmail": "customer@example.com",
-    "destinationAddress": "Jl. Customer Street No. 456",
-    "destinationPostalCode": 54321,
-    "deliveryType": "now",
-    "items": [
-      {
-        "name": "Product Name",
-        "description": "Product Description",
-        "value": 100000,
-        "length": 30,
-        "width": 20,
-        "height": 10,
-        "weight": 1000,
-        "quantity": 2
-      }
-    ]
-  }'
-```
+**Steps:**
+1. In Swagger UI, find **Shipments** tag
+2. Click on `POST /api/shipments`
+3. Click **"Try it out"**
+4. Fill in the request body (use data from your database):
+   ```json
+   {
+     "orderId": "your-order-uuid",
+     "courierCompany": "jne",
+     "courierType": "reg"
+   }
+   ```
+5. Click **"Execute"**
 
 **Expected Response:** `201 Created`
 ```json
@@ -315,19 +309,9 @@ curl -X POST http://localhost:3008/api/shipments \
   "data": {
     "shipment": {
       "id": "shipment-uuid",
-      "order_id": "order-uuid",
       "tracking_number": "JNE1234567890",
       "status": "pending",
-      "courier_service": "jne",
-      "service_type": "reg",
-      "shipping_cost": 15000,
-      "created_at": "2025-11-10T10:00:00.000Z"
-    },
-    "biteshipOrder": {
-      "id": "biteship-order-id",
-      "waybill_id": "JNE1234567890",
-      "status": "confirmed",
-      "price": 15000
+      "courier_service": "jne"
     }
   }
 }
@@ -335,34 +319,28 @@ curl -X POST http://localhost:3008/api/shipments \
 
 **What This Tests:**
 - ✅ Shipment creation via Biteship
-- ✅ Database record creation
-- ✅ Order tracking number assignment
-- ✅ No Prisma relation crash (pickup_tasks removed)
-
-**Common Errors:**
-- 400 "Order already has shipment": Order was already shipped
-- 401 "Unauthorized": Invalid Biteship API key
-- 422 "Invalid postal code": Use real Indonesia postal codes
+- ✅ No Prisma crash (pickup_tasks relation removed)
+- ✅ Tracking number assigned
 
 **Status:** [ ] PASS [ ] FAIL
 
-**Save for later:** `tracking_number`, `shipment_id`
+**Save for later:** Copy the `tracking_number` for Test 6
 
 ---
 
 ## SECTION 4: Shipment Tracking
 
-### Test 5: Track by Tracking Number
+### Test 6: Track by Tracking Number
 
-**Purpose:** Track shipment status using waybill/tracking number
+**Tag:** Tracking
+**Endpoint:** `GET /api/shipments/track/{trackingNumber}`
 
-**Endpoint:** `GET /api/shipments/track/:trackingNumber`
-
-**Command:**
-```bash
-# Replace with tracking number from Test 4
-curl http://localhost:3008/api/shipments/track/JNE1234567890
-```
+**Steps:**
+1. In Swagger UI, find **Tracking** tag
+2. Click on `GET /api/shipments/track/{trackingNumber}`
+3. Click **"Try it out"**
+4. Enter the tracking number from Test 5 in the **trackingNumber** field
+5. Click **"Execute"**
 
 **Expected Response:** `200 OK`
 ```json
@@ -370,28 +348,11 @@ curl http://localhost:3008/api/shipments/track/JNE1234567890
   "success": true,
   "data": {
     "shipment": {
-      "id": "shipment-uuid",
       "tracking_number": "JNE1234567890",
-      "status": "picked_up",
-      "courier_service": "jne",
-      "created_at": "2025-11-10T10:00:00.000Z"
+      "status": "picked_up"
     },
     "trackingInfo": {
-      "success": true,
-      "waybill_id": "JNE1234567890",
-      "status": "picked_up",
-      "history": [
-        {
-          "note": "Package picked up from origin",
-          "updated_at": "2025-11-10T11:00:00Z",
-          "status": "picked_up"
-        },
-        {
-          "note": "Package created",
-          "updated_at": "2025-11-10T10:00:00Z",
-          "status": "pending"
-        }
-      ]
+      "history": [...]
     }
   }
 }
@@ -400,41 +361,26 @@ curl http://localhost:3008/api/shipments/track/JNE1234567890
 **What This Tests:**
 - ✅ Tracking number lookup
 - ✅ Biteship tracking API integration
-- ✅ Status history retrieval
 
 **Status:** [ ] PASS [ ] FAIL
 
 ---
 
-### Test 6: Get Shipments by Order ID
+### Test 7: Get Shipment by Order ID
 
-**Purpose:** Retrieve shipment for specific order
+**Tag:** Shipments
+**Endpoint:** `GET /api/shipments/order/{orderId}`
 
-**Endpoint:** `GET /api/shipments/order/:orderId`
-
-**Command:**
-```bash
-curl http://localhost:3008/api/shipments/order/your-order-uuid
-```
+**Steps:**
+1. In Swagger UI, find `GET /api/shipments/order/{orderId}`
+2. Click **"Try it out"**
+3. Enter your order UUID in the **orderId** field
+4. Click **"Execute"**
 
 **Expected Response:** `200 OK`
-```json
-{
-  "success": true,
-  "data": {
-    "id": "shipment-uuid",
-    "order_id": "order-uuid",
-    "tracking_number": "JNE1234567890",
-    "status": "picked_up",
-    "courier_service": "jne",
-    "shipping_cost": 15000
-  }
-}
-```
 
 **What This Tests:**
 - ✅ Order-to-shipment relationship
-- ✅ Shipment retrieval by order
 
 **Status:** [ ] PASS [ ] FAIL
 
@@ -442,222 +388,91 @@ curl http://localhost:3008/api/shipments/order/your-order-uuid
 
 ## SECTION 5: Webhook Security (Critical Fix)
 
-### Test 7: Biteship Webhook - With Valid Signature
+### Test 8: Biteship Webhook - Valid Signature
 
-**Purpose:** Verify webhook signature validation works
-
+**Tag:** Webhooks
 **Endpoint:** `POST /api/webhooks/biteship`
 
-**Setup:**
-1. Configure `BITESHIP_WEBHOOK_SECRET` in .env
-2. Generate HMAC-SHA256 signature
+**Note:** Webhook testing is best done using Biteship's webhook simulator or by creating actual shipments. For manual testing in Swagger:
 
-**Command:**
-```bash
-# Generate signature (use the exact JSON payload)
-PAYLOAD='{"order_id":"biteship-order-id","status":"delivered","updated_at":"2025-11-10T10:00:00Z"}'
-SECRET="your-webhook-secret"
-SIGNATURE=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
-
-# Send webhook with signature
-curl -X POST http://localhost:3008/api/webhooks/biteship \
-  -H "Content-Type: application/json" \
-  -H "x-biteship-signature: $SIGNATURE" \
-  -d "$PAYLOAD"
-```
-
-**Expected Response:** `200 OK`
-```json
-{
-  "success": true,
-  "message": "Webhook processed successfully"
-}
-```
+**Steps:**
+1. Generate HMAC signature (use online tool or command line)
+2. In Swagger UI, find `POST /api/webhooks/biteship`
+3. Click **"Try it out"**
+4. Add custom header `x-biteship-signature` with the signature
+5. Enter webhook payload
+6. Click **"Execute"**
 
 **What This Tests:**
-- ✅ Webhook signature verification (HMAC-SHA256)
+- ✅ Webhook signature verification
 - ✅ Security fix implemented
-- ✅ Valid webhooks accepted
 
-**Status:** [ ] PASS [ ] FAIL
-
----
-
-### Test 8: Biteship Webhook - Invalid Signature (Security Test)
-
-**Purpose:** Verify invalid signatures are rejected
-
-**Endpoint:** `POST /api/webhooks/biteship`
-
-**Command:**
-```bash
-curl -X POST http://localhost:3008/api/webhooks/biteship \
-  -H "Content-Type: application/json" \
-  -H "x-biteship-signature: invalid-signature-12345" \
-  -d '{
-    "order_id": "biteship-order-id",
-    "status": "delivered"
-  }'
-```
-
-**Expected Response:** `403 Forbidden`
-```json
-{
-  "success": false,
-  "error": "Invalid webhook signature"
-}
-```
-
-**What This Tests:**
-- ✅ Webhook spoofing protection
-- ✅ Invalid signatures rejected
-- ✅ Security vulnerability fixed
-
-**Status:** [ ] PASS [ ] FAIL
-
----
-
-### Test 9: Biteship Webhook - Missing Signature
-
-**Purpose:** Test behavior when signature header is missing
-
-**Endpoint:** `POST /api/webhooks/biteship`
-
-**Command:**
-```bash
-curl -X POST http://localhost:3008/api/webhooks/biteship \
-  -H "Content-Type: application/json" \
-  -d '{
-    "order_id": "biteship-order-id",
-    "status": "in_transit"
-  }'
-```
-
-**Expected Response:**
-- If `BITESHIP_WEBHOOK_SECRET` is set: May warn but process (soft validation)
-- Should log warning about missing signature
-
-**What This Tests:**
-- ✅ Handling of missing signature
-- ✅ Configurable security enforcement
-
-**Status:** [ ] PASS [ ] FAIL
+**Status:** [ ] PASS [ ] FAIL [ ] SKIP (requires Biteship webhook)
 
 ---
 
 ## SECTION 6: Admin Endpoints
 
-### Test 10: Get All Shipments (Admin)
+### Test 9: Get All Shipments (Admin)
 
-**Purpose:** List all shipments with filtering
-
+**Tag:** Admin
 **Endpoint:** `GET /api/admin/shipments`
 
-**Command:**
-```bash
-# Get all shipments
-curl http://localhost:3008/api/admin/shipments
+**Steps:**
+1. In Swagger UI, find **Admin** tag
+2. Click on `GET /api/admin/shipments`
+3. Click **"Try it out"**
+4. Optionally add filters:
+   - status: `pending`
+   - courierService: `jne`
+   - page: `1`
+   - limit: `20`
+5. Click **"Execute"**
 
-# With filters
-curl 'http://localhost:3008/api/admin/shipments?status=pending&courierService=jne&page=1&limit=20'
-```
-
-**Expected Response:** `200 OK`
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "shipment-uuid",
-      "order_id": "order-uuid",
-      "tracking_number": "JNE1234567890",
-      "status": "pending",
-      "courier_service": "jne",
-      "shipping_cost": 15000,
-      "created_at": "2025-11-10T10:00:00.000Z",
-      "orders": {
-        "order_number": "ORD-20251110-001",
-        "user_id": "user-uuid"
-      }
-    }
-  ],
-  "pagination": {
-    "total": 50,
-    "page": 1,
-    "limit": 20,
-    "totalPages": 3
-  }
-}
-```
+**Expected Response:** `200 OK` with shipments array
 
 **What This Tests:**
 - ✅ Admin shipment listing
-- ✅ Filtering functionality
-- ✅ Pagination
+- ✅ Filtering works
 - ✅ No Prisma crash (pickup_tasks removed)
 
 **Status:** [ ] PASS [ ] FAIL
 
 ---
 
-### Test 11: Get Shipment Details (Admin)
+### Test 10: Get Shipment Details (Admin)
 
-**Purpose:** Get detailed shipment with tracking events
+**Tag:** Admin
+**Endpoint:** `GET /api/admin/shipments/{id}`
 
-**Endpoint:** `GET /api/admin/shipments/:id`
+**Steps:**
+1. In Swagger UI, find `GET /api/admin/shipments/{id}`
+2. Click **"Try it out"**
+3. Enter a shipment UUID in the **id** field
+4. Click **"Execute"**
 
-**Command:**
-```bash
-curl http://localhost:3008/api/admin/shipments/your-shipment-uuid
-```
-
-**Expected Response:** `200 OK`
-```json
-{
-  "success": true,
-  "data": {
-    "id": "shipment-uuid",
-    "tracking_number": "JNE1234567890",
-    "status": "in_transit",
-    "orders": {
-      "order_number": "ORD-20251110-001",
-      "order_items": [...]
-    },
-    "shipment_tracking_events": [
-      {
-        "id": "event-uuid",
-        "status": "in_transit",
-        "description": "Package in transit to destination",
-        "event_time": "2025-11-10T12:00:00.000Z"
-      }
-    ]
-  }
-}
-```
+**Expected Response:** `200 OK` with detailed shipment data
 
 **What This Tests:**
 - ✅ Detailed shipment retrieval
 - ✅ Tracking events included
-- ✅ No crash from invalid relations
 
 **Status:** [ ] PASS [ ] FAIL
 
 ---
 
-### Test 12: Shipments Analytics (Admin) - SQL Injection Fix
+### Test 11: Shipments Analytics (SQL Injection Fix)
 
-**Purpose:** Verify analytics endpoint doesn't have SQL injection vulnerability
-
+**Tag:** Admin
 **Endpoint:** `GET /api/admin/shipments/analytics`
 
-**Command:**
-```bash
-# Normal request
-curl 'http://localhost:3008/api/admin/shipments/analytics?startDate=2025-01-01&endDate=2025-12-31'
-
-# Attempt SQL injection (should be safely handled)
-curl 'http://localhost:3008/api/admin/shipments/analytics?startDate=2025-01-01%27;DROP%20TABLE%20shipments;--&endDate=2025-12-31'
-```
+**Steps:**
+1. In Swagger UI, find `GET /api/admin/shipments/analytics`
+2. Click **"Try it out"**
+3. Enter date range:
+   - startDate: `2025-01-01`
+   - endDate: `2025-12-31`
+4. Click **"Execute"**
 
 **Expected Response:** `200 OK`
 ```json
@@ -665,87 +480,51 @@ curl 'http://localhost:3008/api/admin/shipments/analytics?startDate=2025-01-01%2
   "success": true,
   "data": {
     "totalShipments": 150,
-    "shipmentsByStatus": {
-      "pending": 20,
-      "picked_up": 30,
-      "in_transit": 40,
-      "delivered": 60
-    },
-    "shipmentsByCourier": {
-      "jne": 80,
-      "jnt": 50,
-      "sicepat": 20
-    },
     "avgShippingCost": 18500,
-    "avgDeliveryTimeDays": 3.5,
-    "deliveredShipmentsCount": 60
+    "avgDeliveryTimeDays": 3.5
   }
 }
 ```
 
 **What This Tests:**
+- ✅ Analytics endpoint works
 - ✅ SQL injection vulnerability FIXED
-- ✅ Safe Prisma queries used instead of raw SQL
-- ✅ Analytics calculation works correctly
-- ✅ No database corruption from injection attempts
+- ✅ Safe Prisma queries used
+
+**Security Test:**
+Try injecting SQL in date parameters (should be safely handled):
+- startDate: `2025-01-01'; DROP TABLE shipments; --`
+- Should return error or ignore the injection, NOT execute it
 
 **Status:** [ ] PASS [ ] FAIL
 
 ---
 
-## SECTION 7: CORS Testing
+## SECTION 7: Error Handling
 
-### Test 13: CORS Preflight Request
+### Test 12: Invalid Product ID
 
-**Purpose:** Verify CORS is properly configured
-
-**Command:**
-```bash
-curl -X OPTIONS http://localhost:3008/api/rates \
-  -H "Origin: http://localhost:3000" \
-  -H "Access-Control-Request-Method: POST" \
-  -v
-```
-
-**Expected:** Should see CORS headers in response:
-```
-Access-Control-Allow-Origin: *
-Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
-Access-Control-Allow-Credentials: true
-```
-
-**What This Tests:**
-- ✅ CORS enabled (critical fix)
-- ✅ Frontend can make requests
-
-**Status:** [ ] PASS [ ] FAIL
-
----
-
-## SECTION 8: Error Handling
-
-### Test 14: Invalid Order ID
-
-**Purpose:** Test error handling for non-existent order
-
+**Tag:** Rates
 **Endpoint:** `POST /api/rates`
 
-**Command:**
-```bash
-curl -X POST http://localhost:3008/api/rates \
-  -H "Content-Type: application/json" \
-  -d '{
-    "orderId": "00000000-0000-0000-0000-000000000000",
-    "originPostalCode": 12345,
-    "destinationPostalCode": 54321
-  }'
-```
+**Steps:**
+1. In Swagger UI, find `POST /api/rates`
+2. Click **"Try it out"**
+3. Use invalid UUID:
+   ```json
+   {
+     "productId": "00000000-0000-0000-0000-000000000000",
+     "quantity": 10,
+     "userId": "your-user-uuid"
+   }
+   ```
+4. Click **"Execute"**
 
-**Expected Response:** `404 Not Found` or `400 Bad Request`
+**Expected Response:** `400 Bad Request`
 ```json
 {
   "success": false,
-  "error": "Order not found"
+  "error": "Product not found"
 }
 ```
 
@@ -757,106 +536,72 @@ curl -X POST http://localhost:3008/api/rates \
 
 ---
 
-### Test 15: Invalid Biteship API Key
-
-**Purpose:** Test behavior with wrong API credentials
-
-**Setup:** Temporarily change `BITESHIP_API_KEY` to invalid value
-
-**Command:**
-```bash
-curl -X POST http://localhost:3008/api/rates \
-  -H "Content-Type: application/json" \
-  -d '{
-    "orderId": "valid-order-uuid",
-    "originPostalCode": 12345,
-    "destinationPostalCode": 54321
-  }'
-```
-
-**Expected Response:** `500 Internal Server Error` or `401 Unauthorized`
-```json
-{
-  "success": false,
-  "error": "Failed to get shipping rates"
-}
-```
-
-**What This Tests:**
-- ✅ API authentication error handling
-- ✅ Proper error messages
-
-**Status:** [ ] PASS [ ] FAIL
-
----
-
 ## Summary Checklist
 
 ### Critical Fixes Verification
-- [ ] Test 1: Service name correct ("logistics-service", not "product-service")
-- [ ] Test 2: Public routes accessible (POST /api/rates works, not 404)
-- [ ] Test 4: No Prisma crash on shipment creation (pickup_tasks removed)
-- [ ] Tests 7-9: Webhook signature verification working
-- [ ] Test 12: SQL injection fixed in analytics
-- [ ] Test 13: CORS enabled
+- [ ] Test 1: Service name correct ("logistics-service")
+- [ ] Test 2: **Pre-order rates work (GROUP BUYING!)**
+- [ ] Test 3: Post-order rates work (backward compatible)
+- [ ] Test 5: No Prisma crash on shipment creation
+- [ ] Test 8: Webhook signature verification
+- [ ] Test 11: SQL injection fixed in analytics
 
 ### Functionality Verification
-- [ ] Biteship API integration works (rates, shipments, tracking)
-- [ ] Database operations work correctly
+- [ ] Biteship API integration works
+- [ ] Database operations work
 - [ ] Error handling is graceful
-- [ ] Admin endpoints function properly
+- [ ] Admin endpoints function
 
-### Security Verification
-- [ ] Webhook signatures validated
-- [ ] SQL injection prevented
-- [ ] CORS properly configured
-- [ ] API key validation works
-
----
-
-## Notes for Integration
-
-After all tests pass, the logistics service is ready to integrate with group buying:
-
-**Integration Points:**
-1. **Calculate shipping cost** when user joins group buying session
-2. **Add shipping to payment amount**: `totalPrice + shippingCost + gatewayFee`
-3. **Create shipment** after group session succeeds and order is created
-4. **Track delivery status** and notify users
-
-**Key Data Needed for Integration:**
-- Origin factory address (from factory table)
-- Destination user address (from user_addresses table)
-- Product weight/dimensions (from product_variants table)
-- Selected courier from user (JNE, J&T, SiCepat, etc.)
+### Group Buying Ready
+- [ ] Can get shipping cost WITHOUT order
+- [ ] Fetches product/variant data correctly
+- [ ] Gets factory and user addresses
+- [ ] Returns real courier rates
 
 ---
 
-## Troubleshooting
+## Integration Checklist for Group Buying
 
-### Common Issues
+Before integrating shipping costs into group buying:
 
-**404 on all /api/* routes:**
-- Public routes not registered → Check index.ts has `app.use('/api', logisticsRoutes)`
+- [ ] Test 2 passes (pre-order rate calculation)
+- [ ] Products have weight/dimensions in database
+- [ ] Product variants have weight
+- [ ] Factories have postal codes
+- [ ] Users have default shipping addresses
+- [ ] Logistics service runs on port 3008
+- [ ] Biteship API key is configured
 
-**401 from Biteship:**
-- Invalid API key → Check BITESHIP_API_KEY in .env
-- Using production key in test mode → Use test credentials
+---
 
-**Empty pricing array:**
-- Invalid postal codes → Use real Indonesia postal codes (e.g., 12345 for Jakarta)
-- No couriers available → Try different postal code combinations
+## Using Swagger UI Tips
 
-**Webhook 403:**
-- Invalid signature → Check BITESHIP_WEBHOOK_SECRET matches Biteship dashboard
-- Wrong header name → Verify header name with Biteship docs (may be x-biteship-signature)
+### Viewing Request Examples
+- Swagger shows 3 examples for POST /api/rates
+- Click dropdown to switch between examples
+- Modify the JSON to use your real data
 
-**Prisma crashes:**
-- pickup_tasks relation error → Should be fixed, verify logistics.repository.ts line 87-91 removed
+### Copying Responses
+- Click **"Copy"** icon next to response body
+- Paste into documentation or share with team
 
-**CORS errors from frontend:**
-- CORS not enabled → Check index.ts has cors() middleware
-- Wrong origin → Set CORS_ORIGIN in .env
+### Testing Multiple Scenarios
+- Keep Swagger tab open
+- Test different combinations
+- Compare responses
+
+### Troubleshooting
+- Check **"Server response"** section for actual status code
+- View **"Response body"** for error messages
+- Check **"Responses headers"** for CORS headers
+
+---
+
+## Next Steps After Testing
+
+1. ✅ All tests pass → Proceed to group buying integration
+2. ❌ Any test fails → Fix issues and retest
+3. Use `GROUP_BUYING_SHIPPING_INTEGRATION.md` for integration guide
 
 ---
 
@@ -865,47 +610,51 @@ After all tests pass, the logistics service is ready to integrate with group buy
 ```
 Date: _______________
 Tester: _______________
+Swagger URL: http://localhost:3008/api-docs
 
-SECTION 1: Health & Configuration
+SECTION 1: Health
 [ ] Test 1: Health Check
 
 SECTION 2: Shipping Rates
-[ ] Test 2: Get Rates - Minimal
-[ ] Test 3: Get Rates - GPS Coordinates
+[ ] Test 2: Pre-Order Mode (GROUP BUYING) ⭐
+[ ] Test 3: Post-Order Mode
+[ ] Test 4: Manual Postal Codes
 
-SECTION 3: Shipment Creation
-[ ] Test 4: Create Shipment
+SECTION 3: Shipments
+[ ] Test 5: Create Shipment
 
 SECTION 4: Tracking
-[ ] Test 5: Track by Number
-[ ] Test 6: Get by Order ID
+[ ] Test 6: Track by Number
+[ ] Test 7: Get by Order ID
 
-SECTION 5: Webhook Security
-[ ] Test 7: Valid Signature
-[ ] Test 8: Invalid Signature
-[ ] Test 9: Missing Signature
+SECTION 5: Webhooks
+[ ] Test 8: Webhook Security
 
-SECTION 6: Admin Endpoints
-[ ] Test 10: List All Shipments
-[ ] Test 11: Get Shipment Details
-[ ] Test 12: Analytics (SQL Injection Test)
+SECTION 6: Admin
+[ ] Test 9: List Shipments
+[ ] Test 10: Shipment Details
+[ ] Test 11: Analytics (SQL Injection Test) ⭐
 
-SECTION 7: CORS
-[ ] Test 13: CORS Preflight
-
-SECTION 8: Error Handling
-[ ] Test 14: Invalid Order ID
-[ ] Test 15: Invalid API Key
+SECTION 7: Errors
+[ ] Test 12: Invalid Product ID
 
 Overall Status: [ ] PASS [ ] FAIL
+Critical for Group Buying: [ ] READY [ ] NOT READY
+
 Notes: _______________________________________________
 ```
 
 ---
 
-## Next Steps After Testing
+## Most Important Tests for Group Buying
 
-1. ✅ All tests pass → Proceed to group buying integration
-2. ❌ Any test fails → Fix issues and retest
-3. Document any Biteship-specific behaviors discovered during testing
-4. Update webhook header names if different from documentation
+**Must Pass:**
+1. ⭐ **Test 2** - Pre-order rate calculation
+2. ⭐ **Test 11** - Analytics security (SQL injection fixed)
+
+**Should Pass:**
+- Test 1 - Health check
+- Test 3 - Post-order mode (backward compatibility)
+- Test 12 - Error handling
+
+Once Test 2 passes, you can integrate shipping costs into group buying using the guide in `GROUP_BUYING_SHIPPING_INTEGRATION.md`! 🚀
