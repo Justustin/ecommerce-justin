@@ -25,7 +25,9 @@ export class LogisticsService {
   async getShippingRates(data: GetRatesDTO): Promise<RatesResponse> {
     let items: any[] = [];
     let destinationPostalCode = data.destinationPostalCode;
+    let originPostalCode = data.originPostalCode;
 
+    // SCENARIO 1: Calculate rates from existing order (post-payment)
     if (data.orderId) {
       const order = await prisma.orders.findUnique({
         where: { id: data.orderId },
@@ -49,19 +51,19 @@ export class LogisticsService {
         const snapshot = item.product_snapshot as any;
         const product = snapshot?.product || {};
         const variant = snapshot?.variant || {};
-        
+
         const itemWeight = Number(variant.weight_grams || product.weight_grams || 500);
         totalWeight += itemWeight * item.quantity;
         totalValue += Number(item.unit_price) * item.quantity;
-        
+
         const length = Number(product.length_cm || 10);
         const width = Number(product.width_cm || 10);
         const height = Number(product.height_cm || 10);
-        
+
         maxLength = Math.max(maxLength, length);
         maxWidth = Math.max(maxWidth, width);
         maxHeight = Math.max(maxHeight, height);
-        
+
         itemNames.push(`${item.product_name}${item.variant_name ? ` (${item.variant_name})` : ''}`);
       });
 
@@ -77,7 +79,95 @@ export class LogisticsService {
       }];
 
       destinationPostalCode = destinationPostalCode || Number(order.shipping_postal_code);
-    } else {
+    }
+    // SCENARIO 2: Calculate rates from product/variant (pre-order - GROUP BUYING!)
+    else if (data.productId) {
+      const quantity = data.quantity || 1;
+
+      // Fetch product and variant data
+      const product = await prisma.products.findUnique({
+        where: { id: data.productId },
+        include: {
+          product_variants: data.variantId ? {
+            where: { id: data.variantId }
+          } : false,
+          factories: {
+            select: {
+              id: true,
+              factory_name: true,
+              city: true,
+              postal_code: true,
+              latitude: true,
+              longitude: true
+            }
+          }
+        }
+      });
+
+      if (!product) {
+        throw new Error('Product not found');
+      }
+
+      // Get product weight/dimensions
+      let weight = 500; // default 500g
+      let length = 10;  // default 10cm
+      let width = 10;
+      let height = 10;
+      let value = Number(product.price);
+      let itemName = product.name;
+
+      if (data.variantId && product.product_variants && product.product_variants.length > 0) {
+        const variant = product.product_variants[0];
+        weight = Number(variant.weight_grams) || weight;
+        value = Number(variant.price) || value;
+        itemName = `${product.name} (${variant.name})`;
+      } else {
+        weight = Number(product.weight_grams) || weight;
+        length = Number(product.length_cm) || length;
+        width = Number(product.width_cm) || width;
+        height = Number(product.height_cm) || height;
+      }
+
+      items = [{
+        name: itemName,
+        description: `${quantity} item(s)`,
+        value: value * quantity,
+        length,
+        width,
+        height,
+        weight: weight * quantity,
+        quantity: 1
+      }];
+
+      // Get origin from factory if not provided
+      if (!originPostalCode && product.factories) {
+        originPostalCode = Number(product.factories.postal_code);
+        if (!data.originLatitude && product.factories.latitude) {
+          data.originLatitude = Number(product.factories.latitude);
+          data.originLongitude = Number(product.factories.longitude);
+        }
+      }
+
+      // Get destination from user's default address if userId provided
+      if (data.userId && !destinationPostalCode) {
+        const userAddress = await prisma.user_addresses.findFirst({
+          where: {
+            user_id: data.userId,
+            is_default: true
+          }
+        });
+
+        if (userAddress) {
+          destinationPostalCode = Number(userAddress.postal_code);
+          if (!data.destinationLatitude && userAddress.latitude) {
+            data.destinationLatitude = Number(userAddress.latitude);
+            data.destinationLongitude = Number(userAddress.longitude);
+          }
+        }
+      }
+    }
+    // SCENARIO 3: Fallback - use dummy values (should not happen in production)
+    else {
       items = [{
         name: 'Package',
         description: 'Order package',
@@ -90,12 +180,17 @@ export class LogisticsService {
       }];
     }
 
+    // Validate required fields
     if (!destinationPostalCode) {
-      throw new Error('Destination postal code is required');
+      throw new Error('Destination postal code is required. Provide either orderId, userId with default address, or destinationPostalCode directly.');
+    }
+
+    if (!originPostalCode) {
+      throw new Error('Origin postal code is required. Provide either orderId, productId with factory data, or originPostalCode directly.');
     }
 
     const ratesResponse = await biteshipAPI.getRates({
-      origin_postal_code: data.originPostalCode,
+      origin_postal_code: originPostalCode,
       origin_latitude: data.originLatitude,
       origin_longitude: data.originLongitude,
       destination_postal_code: destinationPostalCode,

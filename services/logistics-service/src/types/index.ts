@@ -2,13 +2,26 @@ import { courier_service, shipment_status } from '@repo/database';
 
 // ==================== Rate Comparison ====================
 export interface GetRatesDTO {
-  orderId: string;
+  // OPTION 1: For existing orders (after payment confirmed)
+  orderId?: string;
+
+  // OPTION 2: For pre-order calculation (group buying, cart checkout)
+  productId?: string;
+  variantId?: string;
+  quantity?: number;
+  userId?: string; // To get user's default shipping address
+
+  // Origin (factory/warehouse) - required if no orderId
   originPostalCode?: number;
   originLatitude?: number;
   originLongitude?: number;
+
+  // Destination - required if no orderId/userId
   destinationPostalCode?: number;
   destinationLatitude?: number;
   destinationLongitude?: number;
+
+  // Courier selection
   couriers?: string; // "jne,jnt,sicepat,anteraja"
 }
 

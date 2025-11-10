@@ -12,22 +12,39 @@ const service = new LogisticsService();
 
 /**
  * Get shipping rates from multiple couriers
+ *
+ * SUPPORTS TWO MODES:
+ * 1. Post-Order: Pass orderId (for existing orders)
+ * 2. Pre-Order (GROUP BUYING): Pass productId + variantId + quantity + userId
  */
 export async function getShippingRates(req: Request, res: Response) {
   try {
     const data: GetRatesDTO = {
+      // For existing orders
       orderId: req.body.orderId,
+
+      // For pre-order calculation (group buying, cart)
+      productId: req.body.productId,
+      variantId: req.body.variantId,
+      quantity: req.body.quantity,
+      userId: req.body.userId,
+
+      // Origin (factory/warehouse)
       originPostalCode: req.body.originPostalCode,
       originLatitude: req.body.originLatitude,
       originLongitude: req.body.originLongitude,
+
+      // Destination (customer)
       destinationPostalCode: req.body.destinationPostalCode,
       destinationLatitude: req.body.destinationLatitude,
       destinationLongitude: req.body.destinationLongitude,
+
+      // Courier selection
       couriers: req.body.couriers
     };
 
     const rates = await service.getShippingRates(data);
-    
+
     res.json({
       success: true,
       data: rates
