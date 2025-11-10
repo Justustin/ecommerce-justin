@@ -463,4 +463,177 @@ router.post('/cycle-count', controller.initiateCycleCount);
  */
 router.get('/discrepancies', controller.getDiscrepancies);
 
+// ============================================================================
+// WAREHOUSE LOCATIONS (Two-Leg Shipping)
+// ============================================================================
+
+/**
+ * @swagger
+ * /api/admin/warehouse/locations:
+ *   post:
+ *     tags: [Admin - Warehouse Locations]
+ *     summary: Create warehouse location
+ *     description: Create a new warehouse location for receiving bulk shipments from factories (Leg 1 destination, Leg 2 origin)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - addressLine
+ *               - city
+ *               - postalCode
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Jakarta Central Warehouse"
+ *               addressLine:
+ *                 type: string
+ *               city:
+ *                 type: string
+ *               province:
+ *                 type: string
+ *               postalCode:
+ *                 type: integer
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Warehouse created successfully
+ *       400:
+ *         description: Validation error
+ */
+router.post(
+  '/locations',
+  [
+    body('name').notEmpty().trim(),
+    body('addressLine').notEmpty().trim(),
+    body('city').notEmpty().trim(),
+    body('province').optional().trim(),
+    body('postalCode').isInt(),
+    body('notes').optional().trim()
+  ],
+  controller.createWarehouse
+);
+
+/**
+ * @swagger
+ * /api/admin/warehouse/locations:
+ *   get:
+ *     tags: [Admin - Warehouse Locations]
+ *     summary: List all warehouse locations
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Warehouses retrieved successfully
+ */
+router.get(
+  '/locations',
+  [
+    query('page').optional().isInt(),
+    query('limit').optional().isInt()
+  ],
+  controller.listWarehouses
+);
+
+/**
+ * @swagger
+ * /api/admin/warehouse/locations/{id}:
+ *   get:
+ *     tags: [Admin - Warehouse Locations]
+ *     summary: Get warehouse location details
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Warehouse retrieved successfully
+ *       404:
+ *         description: Warehouse not found
+ */
+router.get('/locations/:id', [param('id').isUUID()], controller.getWarehouseDetails);
+
+/**
+ * @swagger
+ * /api/admin/warehouse/locations/{id}:
+ *   put:
+ *     tags: [Admin - Warehouse Locations]
+ *     summary: Update warehouse location
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Warehouse updated successfully
+ *       404:
+ *         description: Warehouse not found
+ */
+router.put(
+  '/locations/:id',
+  [
+    param('id').isUUID(),
+    body('name').optional().trim(),
+    body('addressLine').optional().trim(),
+    body('city').optional().trim(),
+    body('province').optional().trim(),
+    body('postalCode').optional().isInt(),
+    body('notes').optional().trim()
+  ],
+  controller.updateWarehouse
+);
+
+/**
+ * @swagger
+ * /api/admin/warehouse/locations/{id}:
+ *   delete:
+ *     tags: [Admin - Warehouse Locations]
+ *     summary: Delete warehouse location
+ *     description: Cannot delete if warehouse is assigned to factories or used in active sessions
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Warehouse deleted successfully
+ *       400:
+ *         description: Cannot delete - warehouse is in use
+ *       404:
+ *         description: Warehouse not found
+ */
+router.delete(
+  '/locations/:id',
+  [param('id').isUUID()],
+  controller.deleteWarehouse
+);
+
 export default router;

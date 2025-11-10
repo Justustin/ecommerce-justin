@@ -578,4 +578,223 @@ export class AdminController {
       res.status(500).json({ error: error.message });
     }
   };
+
+  // ========================================================================
+  // WAREHOUSE LOCATIONS (Two-Leg Shipping)
+  // ========================================================================
+
+  /**
+   * Admin: Create warehouse location
+   */
+  createWarehouse = async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const {
+        name,
+        addressLine,
+        city,
+        province,
+        postalCode,
+        notes
+      } = req.body;
+
+      const warehouse = await prisma.warehouses.create({
+        data: {
+          name,
+          address_line: addressLine,
+          city,
+          province: province || null,
+          postal_code: postalCode,
+          notes: notes || null
+        }
+      });
+
+      res.status(201).json({
+        message: 'Warehouse created successfully',
+        data: warehouse
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: List all warehouse locations
+   */
+  listWarehouses = async (req: Request, res: Response) => {
+    try {
+      const { page = 1, limit = 50 } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const [warehouses, total] = await Promise.all([
+        prisma.warehouses.findMany({
+          skip,
+          take: Number(limit),
+          include: {
+            _count: {
+              select: {
+                factories: true,
+                group_buying_sessions: true
+              }
+            }
+          },
+          orderBy: { created_at: 'desc' }
+        }),
+        prisma.warehouses.count()
+      ]);
+
+      res.json({
+        message: 'Warehouses retrieved successfully',
+        data: warehouses,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          totalPages: Math.ceil(total / Number(limit))
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: Get warehouse location details
+   */
+  getWarehouseDetails = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      const warehouse = await prisma.warehouses.findUnique({
+        where: { id },
+        include: {
+          _count: {
+            select: {
+              factories: true,
+              group_buying_sessions: true
+            }
+          },
+          factories: {
+            select: {
+              id: true,
+              factory_name: true,
+              city: true
+            }
+          }
+        }
+      });
+
+      if (!warehouse) {
+        return res.status(404).json({ error: 'Warehouse not found' });
+      }
+
+      res.json({
+        message: 'Warehouse retrieved successfully',
+        data: warehouse
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: Update warehouse location
+   */
+  updateWarehouse = async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+      const {
+        name,
+        addressLine,
+        city,
+        province,
+        postalCode,
+        notes
+      } = req.body;
+
+      const updateData: any = {
+        updated_at: new Date()
+      };
+
+      if (name !== undefined) updateData.name = name;
+      if (addressLine !== undefined) updateData.address_line = addressLine;
+      if (city !== undefined) updateData.city = city;
+      if (province !== undefined) updateData.province = province;
+      if (postalCode !== undefined) updateData.postal_code = postalCode;
+      if (notes !== undefined) updateData.notes = notes;
+
+      const warehouse = await prisma.warehouses.update({
+        where: { id },
+        data: updateData
+      });
+
+      res.json({
+        message: 'Warehouse updated successfully',
+        data: warehouse
+      });
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Warehouse not found' });
+      }
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Admin: Delete warehouse location
+   */
+  deleteWarehouse = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      // Check if warehouse is assigned to any factories
+      const factoryCount = await prisma.factories.count({
+        where: { default_warehouse_id: id }
+      });
+
+      if (factoryCount > 0) {
+        return res.status(400).json({
+          error: `Cannot delete warehouse. It is assigned to ${factoryCount} factory(ies). Please reassign factories first.`
+        });
+      }
+
+      // Check if warehouse is used in any active group buying sessions
+      const sessionCount = await prisma.group_buying_sessions.count({
+        where: {
+          warehouse_id: id,
+          status: {
+            in: ['forming', 'moq_reached']
+          }
+        }
+      });
+
+      if (sessionCount > 0) {
+        return res.status(400).json({
+          error: `Cannot delete warehouse. It is used in ${sessionCount} active group buying session(s).`
+        });
+      }
+
+      await prisma.warehouses.delete({
+        where: { id }
+      });
+
+      res.json({
+        message: 'Warehouse deleted successfully'
+      });
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Warehouse not found' });
+      }
+      res.status(400).json({ error: error.message });
+    }
+  };
 }
