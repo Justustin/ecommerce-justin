@@ -35,6 +35,10 @@ export class GroupBuyingRepository {
         price_tier_75: data.priceTier75 || null,
         price_tier_100: data.priceTier100 || null,
         current_tier: data.currentTier || 25,
+        // TWO-LEG SHIPPING: Store warehouse and bulk shipping cost
+        warehouse_id: (data as any).warehouseId || null,
+        bulk_shipping_cost: (data as any).bulkShippingCost || 0,
+        bulk_shipping_cost_per_unit: (data as any).bulkShippingCostPerUnit || 0,
         // status defaults to 'forming' from schema
       },
       include: {
@@ -100,6 +104,17 @@ export class GroupBuyingRepository {
           logo_url: true,
           owner_id: true
         }
+        },
+        // TWO-LEG SHIPPING: Include warehouse details
+        warehouses: {
+          select: {
+            id: true,
+            name: true,
+            postal_code: true,
+            city: true,
+            province: true,
+            address_line: true
+          }
         },
         group_participants: {
           include: {

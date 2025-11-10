@@ -36,6 +36,56 @@ export class GroupBuyingService {
             }
         }
 
+        // TWO-LEG SHIPPING: Get factory's default warehouse
+        const { prisma } = await import('@repo/database');
+        const factory = await prisma.factories.findUnique({
+            where: { id: data.factoryId },
+            select: {
+                id: true,
+                default_warehouse_id: true,
+                factory_name: true
+            }
+        });
+
+        if (!factory) {
+            throw new Error('Factory not found');
+        }
+
+        // Use provided warehouseId or fall back to factory's default
+        const warehouseId = data.warehouseId || factory.default_warehouse_id;
+
+        if (!warehouseId) {
+            throw new Error(
+                `No warehouse assigned to factory ${factory.factory_name}. ` +
+                `Please assign a warehouse to this factory or specify a warehouse for this session.`
+            );
+        }
+
+        // Verify warehouse exists
+        const warehouse = await prisma.warehouses.findUnique({
+            where: { id: warehouseId },
+            select: { id: true, name: true }
+        });
+
+        if (!warehouse) {
+            throw new Error('Warehouse not found');
+        }
+
+        // Calculate per-unit bulk shipping cost (Leg 1: Factory → Warehouse)
+        const bulkShippingCost = data.bulkShippingCost || 0;
+        const bulkShippingCostPerUnit = bulkShippingCost > 0
+            ? bulkShippingCost / data.targetMoq
+            : 0;
+
+        logger.info('Creating session with two-leg shipping', {
+            factoryId: data.factoryId,
+            warehouseId,
+            warehouseName: warehouse.name,
+            bulkShippingCost,
+            bulkShippingCostPerUnit,
+            targetMoq: data.targetMoq
+        });
+
         // TIERING SYSTEM: Validate tier prices are provided and in descending order
         if (!data.priceTier25 || !data.priceTier50 || !data.priceTier75 || !data.priceTier100) {
             throw new Error(
@@ -69,7 +119,11 @@ export class GroupBuyingService {
             priceTier75: tier75,
             priceTier100: tier100,
             currentTier: 25,
-            groupPrice: data.groupPrice  // Store base price (NOT tier price)
+            groupPrice: data.groupPrice,  // Store base price (NOT tier price)
+            // TWO-LEG SHIPPING: Include warehouse and bulk shipping cost
+            warehouseId,
+            bulkShippingCost,
+            bulkShippingCostPerUnit
         };
 
         const session = await this.repository.createSession(sessionData);
@@ -164,6 +218,7 @@ export class GroupBuyingService {
     /**
      * Get shipping options grouped by delivery speed
      * Called by frontend BEFORE user joins session to show shipping choices
+     * TWO-LEG SHIPPING: Returns Leg 1 (Factory→Warehouse) + Leg 2 (Warehouse→User)
      */
     async getShippingOptions(sessionId: string, userId: string, quantity: number, variantId?: string) {
         const session = await this.repository.findById(sessionId);
@@ -171,22 +226,39 @@ export class GroupBuyingService {
             throw new Error('Session not found');
         }
 
+        // TWO-LEG SHIPPING: Calculate Leg 1 (Factory → Warehouse) cost
+        const leg1PerUnit = Number(session.bulk_shipping_cost_per_unit) || 0;
+        const leg1Total = leg1PerUnit * quantity;
+
+        // Get warehouse for Leg 2 calculation
+        if (!session.warehouse_id || !session.warehouses) {
+            throw new Error('No warehouse assigned to this session');
+        }
+
+        const warehouse = session.warehouses;
+
         try {
             const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL || 'http://localhost:3008';
 
-            logger.info('Fetching shipping options for group buying preview', {
+            logger.info('Fetching shipping options for group buying (two-leg)', {
                 sessionId,
                 productId: session.product_id,
                 variantId,
                 quantity,
-                userId
+                userId,
+                warehouseId: warehouse.id,
+                warehouseName: warehouse.name,
+                leg1PerUnit,
+                leg1Total
             });
 
+            // TWO-LEG SHIPPING: Use warehouse postal code as origin (not factory!)
             const ratesResponse = await axios.post(`${logisticsServiceUrl}/api/rates`, {
+                originPostalCode: warehouse.postal_code, // ← Warehouse, not factory!
+                destinationUserId: userId,
                 productId: session.product_id,
                 variantId: variantId,
                 quantity: quantity,
-                userId: userId,
                 couriers: 'jne,jnt,sicepat,anteraja'
             });
 
@@ -199,19 +271,38 @@ export class GroupBuyingService {
             // Group rates by delivery time
             const grouped = this.groupShippingBySpeed(allRates);
 
-            logger.info('Shipping options grouped successfully', {
+            // TWO-LEG SHIPPING: Add Leg 1 cost to each option
+            const addLeg1Costs = (option: any) => {
+                if (!option) return null;
+                return {
+                    ...option,
+                    leg1Cost: leg1Total,          // Factory → Warehouse share
+                    leg2Cost: option.price,        // Warehouse → User (original price)
+                    totalShipping: leg1Total + option.price  // Combined shipping cost
+                };
+            };
+
+            logger.info('Shipping options grouped with two-leg costs', {
                 sessionId,
-                sameDay: grouped.sameDay?.courier_name,
-                express: grouped.express?.courier_name,
-                regular: grouped.regular?.courier_name
+                leg1Total,
+                sameDay: grouped.sameDay ? `${grouped.sameDay.courier_name} (${grouped.sameDay.price})` : null,
+                express: grouped.express ? `${grouped.express.courier_name} (${grouped.express.price})` : null,
+                regular: grouped.regular ? `${grouped.regular.courier_name} (${grouped.regular.price})` : null
             });
 
             return {
-                sameDay: grouped.sameDay,
-                express: grouped.express,
-                regular: grouped.regular,
+                sameDay: addLeg1Costs(grouped.sameDay),
+                express: addLeg1Costs(grouped.express),
+                regular: addLeg1Costs(grouped.regular),
                 productPrice: quantity * Number(session.group_price),
-                gatewayFeePercentage: 3 // 3% gateway fee
+                gatewayFeePercentage: 3, // 3% gateway fee
+                // TWO-LEG SHIPPING: Provide breakdown for frontend
+                breakdown: {
+                    leg1PerUnit,
+                    leg1Total,
+                    warehouseName: warehouse.name,
+                    warehouseCity: warehouse.city
+                }
             };
 
         } catch (error: any) {
@@ -373,7 +464,16 @@ export class GroupBuyingService {
             throw new Error('Shipping option must be selected. Please choose a shipping method first.');
         }
 
-        const shippingCost = data.selectedShipping.price || 0;
+        // TWO-LEG SHIPPING: Calculate Leg 1 (Factory → Warehouse) cost
+        const leg1PerUnit = Number(session.bulk_shipping_cost_per_unit) || 0;
+        const leg1Total = leg1PerUnit * data.quantity;
+
+        // TWO-LEG SHIPPING: Leg 2 (Warehouse → User) from user's selection
+        const leg2Cost = data.selectedShipping.price || 0;
+
+        // Total shipping = Leg 1 + Leg 2
+        const totalShipping = leg1Total + leg2Cost;
+
         const selectedCourier = {
             name: data.selectedShipping.courierName,
             service: data.selectedShipping.courierService,
@@ -381,9 +481,13 @@ export class GroupBuyingService {
             type: data.selectedShipping.type // 'sameDay', 'express', or 'regular'
         };
 
-        logger.info('Using user-selected shipping option', {
+        logger.info('Using two-leg shipping for payment', {
             sessionId: data.groupSessionId,
-            shippingCost,
+            quantity: data.quantity,
+            leg1PerUnit,
+            leg1Total,
+            leg2Cost,
+            totalShipping,
             courier: selectedCourier
         });
 
@@ -392,13 +496,15 @@ export class GroupBuyingService {
         const gatewayFeePercentage = 0.03; // 3%
         const gatewayFee = Math.ceil(productPrice * gatewayFeePercentage);
 
-        // Calculate total amount including shipping and gateway fee
-        const totalAmount = productPrice + shippingCost + gatewayFee;
+        // TWO-LEG SHIPPING: Total amount includes both legs
+        const totalAmount = productPrice + leg1Total + leg2Cost + gatewayFee;
 
-        logger.info('Payment breakdown calculated', {
+        logger.info('Payment breakdown calculated (two-leg)', {
             sessionId: data.groupSessionId,
             productPrice,
-            shippingCost,
+            leg1Cost: leg1Total,
+            leg2Cost,
+            totalShipping,
             gatewayFee,
             totalAmount
         });
@@ -408,10 +514,14 @@ export class GroupBuyingService {
             ...data,
             metadata: {
                 ...data.metadata,
-                shippingCost,
+                // TWO-LEG SHIPPING: Store detailed breakdown
+                leg1Cost: leg1Total,
+                leg2Cost: leg2Cost,
+                shippingCost: totalShipping,  // Total of both legs
                 gatewayFee,
                 totalAmount,
-                selectedCourier
+                selectedCourier,
+                warehouseName: session.warehouses?.name
             }
         })
 
@@ -487,10 +597,14 @@ export class GroupBuyingService {
           invoiceId: paymentResult.invoiceId,
           breakdown: {
             productPrice,
-            shippingCost,
+            // TWO-LEG SHIPPING: Detailed breakdown
+            leg1Cost: leg1Total,
+            leg2Cost: leg2Cost,
+            totalShipping: totalShipping,
             gatewayFee,
             totalAmount,
-            selectedCourier
+            selectedCourier,
+            warehouseName: session.warehouses?.name
           }
         };
     }

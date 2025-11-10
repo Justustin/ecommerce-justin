@@ -15,6 +15,9 @@ export interface CreateGroupSessionDTO {
   priceTier75?: number;             // Price at 75% MOQ
   priceTier100?: number;            // Price at 100% MOQ (lowest)
   currentTier?: number;             // Current active tier: 25, 50, 75, or 100
+  // TWO-LEG SHIPPING: Bulk shipping from factory to warehouse
+  bulkShippingCost?: number;        // Leg 1 total cost (admin input, divided by targetMoq)
+  warehouseId?: string;             // Override factory's default warehouse
 }
 
 export interface UpdateGroupSessionDTO {
