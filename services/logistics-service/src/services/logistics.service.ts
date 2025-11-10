@@ -152,19 +152,15 @@ export class LogisticsService {
             is_default: true
           },
           select: {
-            postal_code: true,
-            latitude: true,
-            longitude: true
+            postal_code: true
+            // Note: user_addresses table doesn't have latitude/longitude fields
+            // Postal code is sufficient for Biteship API
           }
         });
 
         if (userAddress) {
           destinationPostalCode = Number(userAddress.postal_code);
-          // Get coordinates if available and not manually provided
-          if (!data.destinationLatitude && userAddress.latitude) {
-            data.destinationLatitude = Number(userAddress.latitude);
-            data.destinationLongitude = Number(userAddress.longitude);
-          }
+          // Postal code is sufficient for Biteship - coordinates not required
         }
       }
     }
