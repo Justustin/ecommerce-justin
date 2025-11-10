@@ -255,8 +255,85 @@ export class GroupBuyingService {
             throw new Error(`Total price must be ${calculatedTotal} for quantity ${data.quantity}`)
         }
 
+        // SHIPPING INTEGRATION: Calculate shipping cost BEFORE creating participant
+        let shippingCost = 0;
+        let selectedCourier = null;
+
+        try {
+            const logisticsServiceUrl = process.env.LOGISTICS_SERVICE_URL || 'http://localhost:3008';
+
+            logger.info('Calculating shipping cost for group buying session', {
+                sessionId: data.groupSessionId,
+                productId: session.product_id,
+                variantId: data.variantId,
+                quantity: data.quantity,
+                userId: data.userId
+            });
+
+            const ratesResponse = await axios.post(`${logisticsServiceUrl}/api/rates`, {
+                productId: session.product_id,
+                variantId: data.variantId,
+                quantity: data.quantity,
+                userId: data.userId,
+                couriers: 'jne,jnt,sicepat'
+            });
+
+            if (ratesResponse.data.success && ratesResponse.data.data.pricing && ratesResponse.data.data.pricing.length > 0) {
+                // Use cheapest courier option
+                const rates = ratesResponse.data.data.pricing;
+                const cheapestRate = rates.reduce((min: any, rate: any) =>
+                    rate.price < min.price ? rate : min
+                );
+                shippingCost = cheapestRate.price;
+                selectedCourier = {
+                    name: cheapestRate.courier_name,
+                    service: cheapestRate.courier_service_name,
+                    duration: cheapestRate.duration
+                };
+
+                logger.info('Shipping cost calculated', {
+                    sessionId: data.groupSessionId,
+                    shippingCost,
+                    courier: selectedCourier
+                });
+            }
+        } catch (error: any) {
+            logger.error('Failed to calculate shipping cost', {
+                sessionId: data.groupSessionId,
+                error: error.message
+            });
+            logger.warn('⚠️  Continuing without shipping cost - will need to be added later');
+            // Optionally throw error here if shipping cost is mandatory
+            // throw new Error('Unable to calculate shipping cost. Please ensure you have a default shipping address set.');
+        }
+
+        // Calculate payment gateway fee (Xendit charges ~3% for e-wallet)
+        const productPrice = data.totalPrice;
+        const gatewayFeePercentage = 0.03; // 3%
+        const gatewayFee = Math.ceil(productPrice * gatewayFeePercentage);
+
+        // Calculate total amount including shipping and gateway fee
+        const totalAmount = productPrice + shippingCost + gatewayFee;
+
+        logger.info('Payment breakdown calculated', {
+            sessionId: data.groupSessionId,
+            productPrice,
+            shippingCost,
+            gatewayFee,
+            totalAmount
+        });
+
         // Create participant - users can join multiple times with different variants
-        const participant = await this.repository.joinSession(data)
+        const participant = await this.repository.joinSession({
+            ...data,
+            metadata: {
+                ...data.metadata,
+                shippingCost,
+                gatewayFee,
+                totalAmount,
+                selectedCourier
+            }
+        })
 
         let paymentResult;
         try {
@@ -266,7 +343,7 @@ export class GroupBuyingService {
               userId: data.userId,
               groupSessionId: data.groupSessionId,
               participantId: participant.id,
-              amount: data.totalPrice,
+              amount: totalAmount,  // ✅ Now includes shipping + gateway fee!
               expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
               isEscrow: true,
               factoryId: session.factory_id
@@ -327,7 +404,14 @@ export class GroupBuyingService {
           participant,
           payment: paymentResult.payment,
           paymentUrl: paymentResult.paymentUrl,
-          invoiceId: paymentResult.invoiceId
+          invoiceId: paymentResult.invoiceId,
+          breakdown: {
+            productPrice,
+            shippingCost,
+            gatewayFee,
+            totalAmount,
+            selectedCourier
+          }
         };
     }
     async leaveSession(sessionId: string, userId: string) {
