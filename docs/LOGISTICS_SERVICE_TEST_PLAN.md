@@ -1,7 +1,8 @@
 # Logistics Service - Test Plan
 
 **Service:** Logistics Service (Biteship Integration)
-**Port:** 3002
+**Port:** 3008
+**Swagger URL:** http://localhost:3008/api-docs
 **Created:** 2025-11-10
 
 ---
@@ -27,7 +28,7 @@ This test plan verifies all critical bug fixes and functionality in the Logistic
 cd services/logistics-service && npm run dev
 
 # Should see:
-# 🚚 Logistics Service running on http://localhost:3002
+# 🚚 Logistics Service running on http://localhost:3008
 ```
 
 ### 2. Environment Variables
@@ -36,7 +37,7 @@ Create `.env` in `services/logistics-service/`:
 
 ```bash
 # Required
-PORT=3002
+PORT=3008
 DATABASE_URL=postgresql://user:password@localhost:5432/ecommerce
 
 # Biteship API Configuration
@@ -126,7 +127,7 @@ AND ua.is_default = true;
 
 **Command:**
 ```bash
-curl http://localhost:3002/health
+curl http://localhost:3008/health
 ```
 
 **Expected Response:** `200 OK`
@@ -158,7 +159,7 @@ curl http://localhost:3002/health
 
 **Command:**
 ```bash
-curl -X POST http://localhost:3002/api/rates \
+curl -X POST http://localhost:3008/api/rates \
   -H "Content-Type: application/json" \
   -d '{
     "orderId": "your-order-uuid-here",
@@ -236,7 +237,7 @@ curl -X POST http://localhost:3002/api/rates \
 
 **Command:**
 ```bash
-curl -X POST http://localhost:3002/api/rates \
+curl -X POST http://localhost:3008/api/rates \
   -H "Content-Type: application/json" \
   -d '{
     "orderId": "your-order-uuid",
@@ -273,7 +274,7 @@ curl -X POST http://localhost:3002/api/rates \
 
 **Command:**
 ```bash
-curl -X POST http://localhost:3002/api/shipments \
+curl -X POST http://localhost:3008/api/shipments \
   -H "Content-Type: application/json" \
   -d '{
     "orderId": "your-order-uuid",
@@ -360,7 +361,7 @@ curl -X POST http://localhost:3002/api/shipments \
 **Command:**
 ```bash
 # Replace with tracking number from Test 4
-curl http://localhost:3002/api/shipments/track/JNE1234567890
+curl http://localhost:3008/api/shipments/track/JNE1234567890
 ```
 
 **Expected Response:** `200 OK`
@@ -413,7 +414,7 @@ curl http://localhost:3002/api/shipments/track/JNE1234567890
 
 **Command:**
 ```bash
-curl http://localhost:3002/api/shipments/order/your-order-uuid
+curl http://localhost:3008/api/shipments/order/your-order-uuid
 ```
 
 **Expected Response:** `200 OK`
@@ -459,7 +460,7 @@ SECRET="your-webhook-secret"
 SIGNATURE=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
 
 # Send webhook with signature
-curl -X POST http://localhost:3002/api/webhooks/biteship \
+curl -X POST http://localhost:3008/api/webhooks/biteship \
   -H "Content-Type: application/json" \
   -H "x-biteship-signature: $SIGNATURE" \
   -d "$PAYLOAD"
@@ -490,7 +491,7 @@ curl -X POST http://localhost:3002/api/webhooks/biteship \
 
 **Command:**
 ```bash
-curl -X POST http://localhost:3002/api/webhooks/biteship \
+curl -X POST http://localhost:3008/api/webhooks/biteship \
   -H "Content-Type: application/json" \
   -H "x-biteship-signature: invalid-signature-12345" \
   -d '{
@@ -524,7 +525,7 @@ curl -X POST http://localhost:3002/api/webhooks/biteship \
 
 **Command:**
 ```bash
-curl -X POST http://localhost:3002/api/webhooks/biteship \
+curl -X POST http://localhost:3008/api/webhooks/biteship \
   -H "Content-Type: application/json" \
   -d '{
     "order_id": "biteship-order-id",
@@ -555,10 +556,10 @@ curl -X POST http://localhost:3002/api/webhooks/biteship \
 **Command:**
 ```bash
 # Get all shipments
-curl http://localhost:3002/api/admin/shipments
+curl http://localhost:3008/api/admin/shipments
 
 # With filters
-curl 'http://localhost:3002/api/admin/shipments?status=pending&courierService=jne&page=1&limit=20'
+curl 'http://localhost:3008/api/admin/shipments?status=pending&courierService=jne&page=1&limit=20'
 ```
 
 **Expected Response:** `200 OK`
@@ -607,7 +608,7 @@ curl 'http://localhost:3002/api/admin/shipments?status=pending&courierService=jn
 
 **Command:**
 ```bash
-curl http://localhost:3002/api/admin/shipments/your-shipment-uuid
+curl http://localhost:3008/api/admin/shipments/your-shipment-uuid
 ```
 
 **Expected Response:** `200 OK`
@@ -652,10 +653,10 @@ curl http://localhost:3002/api/admin/shipments/your-shipment-uuid
 **Command:**
 ```bash
 # Normal request
-curl 'http://localhost:3002/api/admin/shipments/analytics?startDate=2025-01-01&endDate=2025-12-31'
+curl 'http://localhost:3008/api/admin/shipments/analytics?startDate=2025-01-01&endDate=2025-12-31'
 
 # Attempt SQL injection (should be safely handled)
-curl 'http://localhost:3002/api/admin/shipments/analytics?startDate=2025-01-01%27;DROP%20TABLE%20shipments;--&endDate=2025-12-31'
+curl 'http://localhost:3008/api/admin/shipments/analytics?startDate=2025-01-01%27;DROP%20TABLE%20shipments;--&endDate=2025-12-31'
 ```
 
 **Expected Response:** `200 OK`
@@ -700,7 +701,7 @@ curl 'http://localhost:3002/api/admin/shipments/analytics?startDate=2025-01-01%2
 
 **Command:**
 ```bash
-curl -X OPTIONS http://localhost:3002/api/rates \
+curl -X OPTIONS http://localhost:3008/api/rates \
   -H "Origin: http://localhost:3000" \
   -H "Access-Control-Request-Method: POST" \
   -v
@@ -731,7 +732,7 @@ Access-Control-Allow-Credentials: true
 
 **Command:**
 ```bash
-curl -X POST http://localhost:3002/api/rates \
+curl -X POST http://localhost:3008/api/rates \
   -H "Content-Type: application/json" \
   -d '{
     "orderId": "00000000-0000-0000-0000-000000000000",
@@ -764,7 +765,7 @@ curl -X POST http://localhost:3002/api/rates \
 
 **Command:**
 ```bash
-curl -X POST http://localhost:3002/api/rates \
+curl -X POST http://localhost:3008/api/rates \
   -H "Content-Type: application/json" \
   -d '{
     "orderId": "valid-order-uuid",
