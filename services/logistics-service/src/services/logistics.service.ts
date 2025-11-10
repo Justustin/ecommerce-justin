@@ -96,9 +96,8 @@ export class LogisticsService {
               id: true,
               factory_name: true,
               city: true,
-              postal_code: true,
-              latitude: true,
-              longitude: true
+              postal_code: true
+              // Note: factories table doesn't have latitude/longitude fields
             }
           }
         }
@@ -142,10 +141,7 @@ export class LogisticsService {
       // Get origin from factory if not provided
       if (!originPostalCode && product.factories) {
         originPostalCode = Number(product.factories.postal_code);
-        if (!data.originLatitude && product.factories.latitude) {
-          data.originLatitude = Number(product.factories.latitude);
-          data.originLongitude = Number(product.factories.longitude);
-        }
+        // Factory doesn't have coordinates - postal code is sufficient for Biteship
       }
 
       // Get destination from user's default address if userId provided
@@ -154,11 +150,17 @@ export class LogisticsService {
           where: {
             user_id: data.userId,
             is_default: true
+          },
+          select: {
+            postal_code: true,
+            latitude: true,
+            longitude: true
           }
         });
 
         if (userAddress) {
           destinationPostalCode = Number(userAddress.postal_code);
+          // Get coordinates if available and not manually provided
           if (!data.destinationLatitude && userAddress.latitude) {
             data.destinationLatitude = Number(userAddress.latitude);
             data.destinationLongitude = Number(userAddress.longitude);
