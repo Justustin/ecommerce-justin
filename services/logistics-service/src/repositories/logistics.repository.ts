@@ -84,11 +84,8 @@ export class LogisticsRepository {
             order_items: true
             }
         },
-        pickup_tasks: {
-            include: {
-            factories: true
-            }
-        },
+        // CRITICAL FIX: Removed pickup_tasks relation (does not exist in schema)
+        // pickup_task_id field exists but there's no pickup_tasks table/relation
         shipment_tracking_events: {
             orderBy: { event_time: 'desc' }
         }

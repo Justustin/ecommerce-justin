@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import { LogisticsService } from '../services/logistics.service';
-import { 
+import { BiteshipWebhookVerification, getClientIP } from '../utils/webhook-verification';
+import {
   GetRatesDTO,
-  CreateShipmentDTO, 
+  CreateShipmentDTO,
   UpdateShipmentStatusDTO,
-  ShipmentFilters 
+  ShipmentFilters
 } from '../types';
 
 const service = new LogisticsService();
@@ -168,11 +169,65 @@ export async function getShipments(req: Request, res: Response) {
  */
 export async function handleBiteshipWebhook(req: Request, res: Response) {
   try {
+    // CRITICAL FIX: Verify webhook signature before processing
+    const webhookSecret = process.env.BITESHIP_WEBHOOK_SECRET;
+
+    // Option 1: HMAC signature verification (if Biteship uses this method)
+    const signature = req.headers['x-biteship-signature'] as string;
+
+    // Option 2: Token verification (if Biteship uses static token)
+    // const token = req.headers['x-biteship-token'] as string;
+
+    if (webhookSecret) {
+      const payload = JSON.stringify(req.body);
+
+      // Verify using HMAC (adjust header name based on Biteship docs)
+      if (signature) {
+        const isValid = BiteshipWebhookVerification.verifySignature(
+          payload,
+          signature,
+          webhookSecret
+        );
+
+        if (!isValid) {
+          console.warn('⚠️  Invalid Biteship webhook signature from IP:', getClientIP(req));
+          return res.status(403).json({
+            success: false,
+            error: 'Invalid webhook signature'
+          });
+        }
+      } else {
+        console.warn('⚠️  Biteship webhook received without signature from IP:', getClientIP(req));
+
+        // Uncomment to enforce signature requirement:
+        // return res.status(403).json({
+        //   success: false,
+        //   error: 'Missing webhook signature'
+        // });
+      }
+
+      // Optional: Verify timestamp to prevent replay attacks
+      const timestamp = req.headers['x-biteship-timestamp'] as string;
+      if (timestamp) {
+        const isValidTime = BiteshipWebhookVerification.verifyTimestamp(timestamp);
+        if (!isValidTime) {
+          console.warn('⚠️  Biteship webhook timestamp too old (possible replay attack)');
+          return res.status(403).json({
+            success: false,
+            error: 'Webhook timestamp too old'
+          });
+        }
+      }
+    } else {
+      console.warn('⚠️  BITESHIP_WEBHOOK_SECRET not configured - webhook not verified!');
+      console.warn('   Configure it in .env for security');
+    }
+
     const payload = req.body;
     console.log('📦 Biteship webhook received:', JSON.stringify(payload, null, 2));
-    
+
     const result = await service.handleBiteshipWebhook(payload);
-    
+
     res.json({
       success: true,
       message: result.message

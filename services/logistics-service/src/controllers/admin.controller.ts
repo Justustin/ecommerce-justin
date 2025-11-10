@@ -262,12 +262,13 @@ export class AdminController {
                 where.courier_service = courierService;
             }
 
+            // CRITICAL FIX: Use safe Prisma queries instead of raw SQL to prevent SQL injection
             const [
                 totalShipments,
                 statusCounts,
                 courierCounts,
                 avgShippingCost,
-                avgDeliveryTime
+                deliveredShipments
             ] = await Promise.all([
                 prisma.shipments.count({ where }),
                 prisma.shipments.groupBy({
@@ -284,16 +285,34 @@ export class AdminController {
                     where,
                     _avg: { shipping_cost: true }
                 }),
-                // Calculate average delivery time for delivered shipments
-                prisma.$queryRaw`
-                    SELECT AVG(EXTRACT(EPOCH FROM (delivered_at - created_at))/86400) as avg_days
-                    FROM shipments
-                    WHERE status = 'delivered'
-                    AND delivered_at IS NOT NULL
-                    ${startDate ? prisma.$queryRawUnsafe('AND created_at >= $1', new Date(startDate as string)) : prisma.$queryRawUnsafe('')}
-                    ${endDate ? prisma.$queryRawUnsafe('AND created_at <= $1', new Date(endDate as string)) : prisma.$queryRawUnsafe('')}
-                `
+                // Get delivered shipments for calculating delivery time
+                prisma.shipments.findMany({
+                    where: {
+                        status: 'delivered',
+                        actual_delivery_date: { not: null },
+                        ...(startDate && { created_at: { gte: new Date(startDate as string) } }),
+                        ...(endDate && { created_at: { lte: new Date(endDate as string) } })
+                    },
+                    select: {
+                        created_at: true,
+                        actual_delivery_date: true
+                    }
+                })
             ]);
+
+            // Calculate average delivery time safely in JavaScript
+            let avgDeliveryDays = 0;
+            if (deliveredShipments.length > 0) {
+                const totalDays = deliveredShipments.reduce((sum, shipment) => {
+                    if (shipment.actual_delivery_date) {
+                        const deliveryTime = shipment.actual_delivery_date.getTime() - shipment.created_at.getTime();
+                        const days = deliveryTime / (1000 * 60 * 60 * 24); // Convert ms to days
+                        return sum + days;
+                    }
+                    return sum;
+                }, 0);
+                avgDeliveryDays = totalDays / deliveredShipments.length;
+            }
 
             const shipmentsByStatus: Record<string, number> = {};
             statusCounts.forEach(item => {
@@ -310,9 +329,8 @@ export class AdminController {
                 shipmentsByStatus,
                 shipmentsByCourier,
                 avgShippingCost: Number(avgShippingCost._avg.shipping_cost || 0),
-                avgDeliveryTimeDays: avgDeliveryTime && (avgDeliveryTime as any)[0]
-                    ? Number((avgDeliveryTime as any)[0].avg_days || 0)
-                    : 0
+                avgDeliveryTimeDays: Number(avgDeliveryDays.toFixed(2)), // Fixed: now uses safe calculation
+                deliveredShipmentsCount: deliveredShipments.length
             };
 
             res.json({
