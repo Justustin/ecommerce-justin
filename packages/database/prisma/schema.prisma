@@ -378,7 +378,6 @@ model payments {
   metadata               Json?
   wallet_amount          Decimal?               @default(0.00) @db.Decimal(15, 2)
   xendit_amount          Decimal?               @default(0.00) @db.Decimal(15, 2)
-  admin_note             String?
   group_buying_sessions  group_buying_sessions? @relation(fields: [group_session_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_group_session")
   group_participants     group_participants?    @relation(fields: [participant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payments_participant")
   orders                 orders?                @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -448,13 +447,13 @@ model product_variants {
   is_active                  Boolean?                     @default(true)
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  grosir_bundle_config       grosir_bundle_config[]
+  grosir_warehouse_tolerance grosir_warehouse_tolerance[]
   group_participants         group_participants[]
   order_items                order_items[]
   products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  grosir_bundle_config       grosir_bundle_config[]        // Factory bundle composition
-  grosir_warehouse_tolerance grosir_warehouse_tolerance[]  // Warehouse tolerance config
-  seller_inventory_variants  seller_inventory_variants[]   // Seller variant inventory
-  seller_stock_movements     seller_stock_movements[]      // Stock movements
+  seller_inventory_variants  seller_inventory_variants[]
+  seller_stock_movements     seller_stock_movements[]
   warehouse_inventory        warehouse_inventory[]
   warehouse_purchase_orders  warehouse_purchase_orders[]
 
@@ -465,15 +464,15 @@ model product_variants {
 /// Factory bundle composition - how many units of each variant per bundle
 /// Example: Bundle = 2S + 5M + 4L + 1XL (12 total)
 model grosir_bundle_config {
-  id               String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   product_id       String            @db.Uuid
-  variant_id       String?           @db.Uuid  // null = base product (no variants)
-  units_per_bundle Int               // How many of this variant in one factory bundle
-  notes            String?           // Admin notes on factory bundle composition
+  variant_id       String?           @db.Uuid
+  units_per_bundle Int
+  notes            String?
   created_at       DateTime          @default(now()) @db.Timestamptz(6)
   updated_at       DateTime          @default(now()) @db.Timestamptz(6)
-  products         products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products         products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bundle_config_product")
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bundle_config_variant")
 
   @@unique([product_id, variant_id], map: "unique_bundle_config_product_variant")
   @@index([product_id], map: "idx_bundle_config_product")
@@ -482,16 +481,16 @@ model grosir_bundle_config {
 /// NEW: Warehouse tolerance - maximum excess units acceptable per variant
 /// Controls how many bundles platform can buy from factory
 model grosir_warehouse_tolerance {
-  id                       String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  product_id               String            @db.Uuid
-  variant_id               String?           @db.Uuid  // null = base product (no variants)
-  max_excess_units         Int               // Max warehouse excess acceptable for this variant
-  clearance_rate_estimate  Int?              // Estimated % of excess that can be cleared (0-100)
-  notes                    String?           // Admin notes on why this tolerance (e.g., "XL hard to clear")
-  created_at               DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime          @default(now()) @db.Timestamptz(6)
-  products                 products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  product_variants         product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                      String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id              String            @db.Uuid
+  variant_id              String?           @db.Uuid
+  max_excess_units        Int
+  clearance_rate_estimate Int?
+  notes                   String?
+  created_at              DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime          @default(now()) @db.Timestamptz(6)
+  products                products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tolerance_product")
+  product_variants        product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tolerance_variant")
 
   @@unique([product_id, variant_id], map: "unique_tolerance_product_variant")
   @@index([product_id], map: "idx_tolerance_product")
@@ -525,19 +524,19 @@ model products {
   grosir_unit_size           Int?
   product_source             product_source?              @default(factory_group_buying)
   seller_id                  String?                      @db.Uuid
+  grosir_bundle_config       grosir_bundle_config[]
+  grosir_warehouse_tolerance grosir_warehouse_tolerance[]
   group_buying_sessions      group_buying_sessions[]
   order_items                order_items[]
   product_images             product_images[]
   product_reviews            product_reviews[]
   product_variants           product_variants[]
-  grosir_bundle_config       grosir_bundle_config[]        // Factory bundle composition
-  grosir_warehouse_tolerance grosir_warehouse_tolerance[]  // Warehouse tolerance config
-  seller_inventory           seller_inventory[]            // Seller inventory
-  warehouse_inventory        warehouse_inventory[]
-  warehouse_purchase_orders  warehouse_purchase_orders[]
-  categories                 categories                    @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  categories                 categories                   @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factories                  factories?                   @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   sellers                    sellers?                     @relation(fields: [seller_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  seller_inventory           seller_inventory[]
+  warehouse_inventory        warehouse_inventory[]
+  warehouse_purchase_orders  warehouse_purchase_orders[]
 
   @@index([category_id], map: "idx_products_category")
   @@index([factory_id], map: "idx_products_factory")
@@ -554,7 +553,7 @@ model refunds {
   id                               String               @id @default(dbgenerated("extensions.uuid_generate_v4()")) @db.Uuid
   refund_code                      String               @unique @db.VarChar(20)
   payment_id                       String               @db.Uuid
-  order_id                         String               @db.Uuid
+  order_id                         String?              @db.Uuid
   user_id                          String               @db.Uuid
   refund_reason                    refund_reason
   refund_status                    refund_status        @default(pending)
@@ -570,9 +569,8 @@ model refunds {
   completed_at                     DateTime?            @db.Timestamptz(6)
   created_at                       DateTime             @default(now()) @db.Timestamptz(6)
   updated_at                       DateTime             @default(now()) @db.Timestamptz(6)
-  admin_note                       String?
   users_refunds_approved_byTousers users?               @relation("refunds_approved_byTousers", fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  orders                           orders               @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orders                           orders?              @relation(fields: [order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payments                         payments             @relation(fields: [payment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users_refunds_user_idTousers     users                @relation("refunds_user_idTousers", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   transaction_ledger               transaction_ledger[]
