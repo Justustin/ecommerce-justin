@@ -4,20 +4,24 @@ const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Factory Service API',
+      title: 'Warehouse Service API',
       version: '1.0.0',
-      description: 'Factory management service for e-commerce platform',
+      description: 'Warehouse management service for e-commerce platform',
     },
     servers: [
       {
-        url: 'http://localhost:3003',
+        url: 'http://localhost:3011',
         description: 'Development server',
       },
     ],
     tags: [
       {
-        name: 'Factories',
-        description: 'Factory management endpoints',
+        name: 'Warehouses',
+        description: 'Warehouse management endpoints',
+      },
+      {
+        name: 'Admin',
+        description: 'Admin warehouse management endpoints',
       },
     ],
   },
