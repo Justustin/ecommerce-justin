@@ -351,16 +351,21 @@ export class GroupBuyingService {
             }
         }
 
-        // Pick cheapest in each category
-        const pickCheapest = (category: any[]) => {
+        // Pick cheapest in each category and add category type
+        const pickCheapest = (category: any[], categoryType: string) => {
             if (category.length === 0) return null;
-            return category.reduce((min, rate) => rate.price < min.price ? rate : min);
+            const cheapest = category.reduce((min, rate) => rate.price < min.price ? rate : min);
+            // Override the Biteship 'type' with our category type for validation
+            return {
+                ...cheapest,
+                type: categoryType
+            };
         };
 
         return {
-            sameDay: pickCheapest(sameDay),
-            express: pickCheapest(express),
-            regular: pickCheapest(regular)
+            sameDay: pickCheapest(sameDay, 'sameDay'),
+            express: pickCheapest(express, 'express'),
+            regular: pickCheapest(regular, 'regular')
         };
     }
     async listSessions(filters: GroupSessionFilters) {
