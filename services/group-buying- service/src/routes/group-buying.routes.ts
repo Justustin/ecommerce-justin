@@ -867,6 +867,24 @@ router.post('/process-expired', controller.processExpired);
 
 /**
  * @swagger
+ * /api/group-buying/process-nearing-expiration:
+ *   post:
+ *     tags: [Group Buying Sessions]
+ *     summary: Process sessions nearing expiration (10 min before - cron job endpoint)
+ *     description: |
+ *       Processes sessions that are 10 minutes before expiration.
+ *       - Adds bots to reach 25% MOQ if there's at least 1 real participant and current < 25%
+ *       - Expires sessions with no participants and creates new session for next day
+ *     responses:
+ *       200:
+ *         description: Sessions processed successfully
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/process-nearing-expiration', controller.processNearingExpiration);
+
+/**
+ * @swagger
  * /api/group-buying/{id}/manual-expire:
  *   post:
  *     tags: [Group Buying Sessions]

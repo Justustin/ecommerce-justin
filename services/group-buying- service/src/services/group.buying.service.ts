@@ -776,7 +776,7 @@ export class GroupBuyingService {
     for (const bundle of bundleConfigs) {
       const variantKey = bundle.variant_id || 'null';
       const tolerance = warehouseTolerances.find(
-        t => (t.variant_id || 'null') === (bundle.variant_id || null)
+        t => (t.variant_id || 'null') === (bundle.variant_id || 'null')
       );
 
       if (!tolerance) continue;
@@ -857,9 +857,16 @@ export class GroupBuyingService {
     const { prisma } = await import('@repo/database');
 
     try {
-      // Get all variant quantities from participants
+      // Get all variant quantities from participants who have PAID
       const participants = await prisma.group_participants.findMany({
-        where: { group_session_id: sessionId }
+        where: {
+          group_session_id: sessionId,
+          payments: {
+            some: {
+              payment_status: 'paid'
+            }
+          }
+        }
       });
 
       // Group by variant and prepare demands array
@@ -1103,6 +1110,188 @@ export class GroupBuyingService {
     //   channels: ['email', 'push']
     // });
     }
+  }
+
+  /**
+   * Process sessions that are 10 minutes before expiration
+   * - Add bots to reach 25% MOQ if there's at least 1 real participant and current < 25%
+   * - If no participants, expire session and create new one for next day
+   */
+  async processSessionsNearingExpiration() {
+    const { prisma } = await import('@repo/database');
+
+    // Find sessions expiring in 10 minutes
+    const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000);
+    const eightMinutesFromNow = new Date(Date.now() + 8 * 60 * 1000);
+
+    const nearExpiringSessions = await prisma.group_buying_sessions.findMany({
+      where: {
+        status: 'forming',
+        end_time: {
+          gte: eightMinutesFromNow,  // At least 8 minutes away
+          lte: tenMinutesFromNow      // At most 10 minutes away
+        }
+      },
+      include: {
+        products: {
+          select: { id: true, name: true, slug: true }
+        },
+        group_participants: {
+          where: {
+            is_bot_participant: false  // Only count real participants
+          }
+        }
+      }
+    });
+
+    logger.info(`Found ${nearExpiringSessions.length} sessions nearing expiration (10 min window)`);
+
+    for (const session of nearExpiringSessions) {
+      try {
+        const realParticipants = session.group_participants;
+        const realQuantity = realParticipants.reduce((sum, p) => sum + p.quantity, 0);
+        const fillPercentage = (realQuantity / session.target_moq) * 100;
+
+        logger.info('Processing near-expiring session', {
+          sessionId: session.id,
+          sessionCode: session.session_code,
+          realParticipants: realParticipants.length,
+          realQuantity,
+          targetMoq: session.target_moq,
+          fillPercentage: fillPercentage.toFixed(2) + '%'
+        });
+
+        // CASE 1: No real participants - expire and create new session for next day
+        if (realParticipants.length === 0) {
+          logger.info('No participants - expiring session and creating new one for next day', {
+            sessionId: session.id
+          });
+
+          // Expire this session
+          await prisma.group_buying_sessions.update({
+            where: { id: session.id },
+            data: {
+              status: 'failed',
+              updated_at: new Date()
+            }
+          });
+
+          // Create new session for next day
+          const nextDayStartTime = new Date();
+          nextDayStartTime.setDate(nextDayStartTime.getDate() + 1);
+          nextDayStartTime.setHours(0, 0, 0, 0);  // Start at midnight
+
+          const nextDayEndTime = new Date(nextDayStartTime);
+          nextDayEndTime.setHours(nextDayStartTime.getHours() + (session.group_duration_hours || 48));
+
+          await this.repository.create({
+            productId: session.product_id,
+            factoryId: session.factory_id,
+            targetMoq: session.target_moq,
+            groupPrice: Number(session.group_price),
+            basePrice: Number(session.base_price),
+            groupDurationHours: session.group_duration_hours || 48,
+            startTime: nextDayStartTime,
+            endTime: nextDayEndTime,
+            priceTier25: Number(session.price_tier_25),
+            priceTier50: Number(session.price_tier_50),
+            priceTier75: Number(session.price_tier_75),
+            priceTier100: Number(session.price_tier_100),
+            warehouseId: session.warehouse_id || undefined
+          });
+
+          logger.info('New session created for next day', {
+            productId: session.product_id,
+            startTime: nextDayStartTime.toISOString()
+          });
+
+          continue;
+        }
+
+        // CASE 2: Has participants but < 25% MOQ - add bots to reach 25%
+        if (fillPercentage < 25) {
+          const targetQuantity = Math.ceil(session.target_moq * 0.25);  // 25% of MOQ
+          const botQuantityNeeded = targetQuantity - realQuantity;
+
+          if (botQuantityNeeded > 0) {
+            logger.info('Adding bot to reach 25% MOQ', {
+              sessionId: session.id,
+              currentFill: fillPercentage.toFixed(2) + '%',
+              botQuantityNeeded
+            });
+
+            // Get platform bot user ID (or create if doesn't exist)
+            const botUser = await prisma.users.findFirst({
+              where: { role: 'customer', email: 'platform-bot@system.internal' }
+            });
+
+            let botUserId: string;
+            if (!botUser) {
+              // Create platform bot user
+              const newBot = await prisma.users.create({
+                data: {
+                  phone_number: '+62000000000',
+                  email: 'platform-bot@system.internal',
+                  password_hash: 'SYSTEM_BOT_NO_LOGIN',
+                  first_name: 'Platform',
+                  last_name: 'Bot',
+                  role: 'customer',
+                  status: 'active'
+                }
+              });
+              botUserId = newBot.id;
+            } else {
+              botUserId = botUser.id;
+            }
+
+            // Create bot participant
+            await prisma.group_participants.create({
+              data: {
+                group_session_id: session.id,
+                user_id: botUserId,
+                quantity: botQuantityNeeded,
+                variant_id: null,  // Base product
+                unit_price: Number(session.price_tier_25),  // Bots pay 25% tier price
+                total_price: Number(session.price_tier_25) * botQuantityNeeded,
+                is_bot_participant: true,
+                is_platform_order: true,
+                joined_at: new Date()
+              }
+            });
+
+            // Update session to show bot was added
+            await prisma.group_buying_sessions.update({
+              where: { id: session.id },
+              data: {
+                platform_bot_quantity: botQuantityNeeded,
+                bot_participant_id: botUserId,
+                updated_at: new Date()
+              }
+            });
+
+            logger.info('Bot participant added successfully', {
+              sessionId: session.id,
+              botQuantity: botQuantityNeeded,
+              newFillPercentage: ((realQuantity + botQuantityNeeded) / session.target_moq * 100).toFixed(2) + '%'
+            });
+          }
+        } else {
+          logger.info('Session already >= 25% MOQ, no bot needed', {
+            sessionId: session.id,
+            fillPercentage: fillPercentage.toFixed(2) + '%'
+          });
+        }
+
+      } catch (error: any) {
+        logger.error('Error processing near-expiring session', {
+          sessionId: session.id,
+          error: error.message,
+          stack: error.stack
+        });
+      }
+    }
+
+    return { processed: nearExpiringSessions.length };
   }
 
   async processExpiredSessions() {
@@ -1380,7 +1569,7 @@ export class GroupBuyingService {
                   productId: fullSession.product_id,
                   variantId: p.variant_id || undefined,
                   quantity: p.quantity,
-                  unitPrice: Number(p.unit_price)  // Price they paid at their tier
+                  unitPrice: finalPrice  // Use final tier price, not join-time price
                 }))
               })
             });
