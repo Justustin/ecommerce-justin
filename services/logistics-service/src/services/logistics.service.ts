@@ -23,6 +23,15 @@ export class LogisticsService {
   }
 
   async getShippingRates(data: GetRatesDTO): Promise<RatesResponse> {
+    console.log('[Logistics] getShippingRates called with:', {
+      orderId: data.orderId,
+      productId: data.productId,
+      userId: data.userId,
+      quantity: data.quantity,
+      originPostalCode: data.originPostalCode,
+      destinationPostalCode: data.destinationPostalCode
+    });
+
     let items: any[] = [];
     let destinationPostalCode = data.destinationPostalCode;
     let originPostalCode = data.originPostalCode;
@@ -146,6 +155,8 @@ export class LogisticsService {
 
       // Get destination from user's default address if userId provided
       if (data.userId && !destinationPostalCode) {
+        console.log(`[Logistics] Fetching default address for userId: ${data.userId}`);
+
         const userAddress = await prisma.user_addresses.findFirst({
           where: {
             user_id: data.userId,
@@ -160,7 +171,10 @@ export class LogisticsService {
 
         if (userAddress) {
           destinationPostalCode = Number(userAddress.postal_code);
+          console.log(`[Logistics] Found default address with postal code: ${destinationPostalCode}`);
           // Postal code is sufficient for Biteship - coordinates not required
+        } else {
+          console.error(`[Logistics] No default address found for userId: ${data.userId}. User must set a default address.`);
         }
       }
     }

@@ -255,7 +255,7 @@ export class GroupBuyingService {
             // TWO-LEG SHIPPING: Use warehouse postal code as origin (not factory!)
             const ratesResponse = await axios.post(`${logisticsServiceUrl}/api/rates`, {
                 originPostalCode: warehouse.postal_code, // ← Warehouse, not factory!
-                destinationUserId: userId,
+                userId: userId, // Fixed: was destinationUserId, should be userId
                 productId: session.product_id,
                 variantId: variantId,
                 quantity: quantity,
