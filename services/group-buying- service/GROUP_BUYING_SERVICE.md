@@ -40,19 +40,31 @@ priceTier100: 105000  // When 100 real users join (100%)
 
 ### 2. Bot Auto-Join System
 
-To ensure minimum viability, a **bot automatically joins each session** with 25% of the MOQ:
+To ensure minimum viability, a **bot automatically joins sessions 10 minutes before expiration** if needed:
 
 ```javascript
-// If targetMoq = 100, bot joins with 25 units
-botQuantity = Math.ceil(targetMoq * 0.25)  // 25 units
+// If targetMoq = 100 and real participants = 15 (15%)
+botQuantity = Math.ceil(targetMoq * 0.25) - realQuantity  // 25 - 15 = 10 units
 ```
 
 **Bot Behavior:**
-- Automatically created during session creation
-- Pays using bot account's wallet
+- **NOT created during session creation** (sessions start at 0%)
+- Created **10 minutes before expiration** by `/process-nearing-expiration` cron job
+- Only created if:
+  - At least 1 real participant exists
+  - Real participant quantity < 25% of MOQ
+  - Bot fills gap to exactly 25% MOQ
+- Uses system bot user: `platform-bot@system.internal`
+- Pays `price_tier_25` (not base price)
 - Does NOT count toward tier progression
-- Ensures session always has baseline participation
-- Marked with `isBotParticipant: true`
+- Marked with `is_bot_participant: true` and `is_platform_order: true`
+- Removed before order creation (no real order for bot)
+
+**Special Case - Zero Participants:**
+If session reaches 10 minutes before expiration with **zero participants**:
+- Session marked as `failed`
+- New identical session automatically created for next day (midnight start)
+- This ensures continuous product availability
 
 ---
 
@@ -127,7 +139,7 @@ totalShipping = 50,000 + 15,000 = 65,000
 When a user joins a session, payment includes:
 
 ```javascript
-productPrice = unitPrice × quantity
+productPrice = unitPrice × quantity  // Always group_price (base price)
 leg1Shipping = bulk_shipping_cost_per_unit × quantity
 leg2Shipping = selectedShipping.price
 gatewayFee = productPrice × 0.03  // 3% Xendit fee
@@ -144,6 +156,95 @@ totalAmount = productPrice + leg1Shipping + leg2Shipping + gatewayFee
   "totalAmount": 580000
 }
 ```
+
+**Critical:** Users ALWAYS pay `group_price` (base price) when joining. Price validation ensures:
+```typescript
+if(unitPrice !== session.group_price) {
+    throw new Error('Invalid unit price'); // Prevents price manipulation
+}
+```
+
+---
+
+### Escrow Payment System
+
+All payments are held in **escrow** until session is confirmed:
+
+1. **Payment Creation:**
+   ```json
+   {
+     "userId": "uuid",
+     "groupSessionId": "uuid",
+     "participantId": "uuid",
+     "amount": 580000,
+     "isEscrow": true,
+     "factoryId": "uuid"
+   }
+   ```
+
+2. **Escrow Hold Period:**
+   - Payment status: `paid`
+   - Money held by payment gateway (Xendit)
+   - Cannot be transferred to factory yet
+   - Factory ID tagged for later release
+
+3. **Escrow Release (on production complete):**
+   - Endpoint: `POST /api/payments/release-escrow`
+   - Called from: `completeProduction()` method
+   - Money transferred from escrow to factory account
+   - Includes retry logic (3 attempts)
+
+4. **Escrow Refund (on session failed/cancelled):**
+   - Endpoint: `POST /api/payments/refund-session`
+   - Called from: `cancelSession()` or `processExpiredSessions()`
+   - Money returned to original payment method
+   - Includes retry logic (3 attempts)
+
+---
+
+### Tier-Based Wallet Refund System
+
+After session expires successfully, users receive **wallet refunds** based on final tier:
+
+**Flow:**
+1. User pays **base price** (e.g., 100,000 per unit) → held in escrow
+2. Session expires with 75% MOQ reached
+3. Final tier = 75%, tier price = 85,000 per unit
+4. **Wallet refund issued**: 100,000 - 85,000 = 15,000 per unit
+
+**Refund Calculation:**
+```javascript
+// In processExpiredSessions()
+const basePrice = Number(session.group_price);  // What user paid
+const finalPrice = determineFinalTier(realFillPercentage);  // Tier price
+const refundPerUnit = basePrice - finalPrice;  // Cashback amount
+
+// Issue to wallet
+await walletService.credit({
+    userId: participant.user_id,
+    amount: refundPerUnit × participant.quantity,
+    description: `Group buying refund - Session ${sessionCode} (Tier ${finalTier}%)`,
+    reference: `GROUP_REFUND_${sessionId}_${participantId}`
+});
+```
+
+**Example Refund:**
+```json
+{
+  "basePricePerUnit": 100000,
+  "finalPricePerUnit": 85000,
+  "refundPerUnit": 15000,
+  "quantity": 10,
+  "totalRefund": 150000
+}
+```
+
+**Important Notes:**
+- Wallet refunds ONLY for successful sessions (MOQ reached)
+- Failed sessions get FULL refund to original payment method (via escrow refund)
+- Bot participants do NOT receive wallet refunds
+- Refund failures logged but don't block session processing
+- Orders always record `unitPrice` = base price (what was actually paid)
 
 ---
 
@@ -524,13 +625,20 @@ Cancel a session.
 ```
 For each expired session:
   IF moqProgress >= targetMoq:
-    → Status: success
-    → Create orders for all paid participants
+    → Calculate final tier based on real participant %
+    → Issue wallet refunds (basePrice - tierPrice)
+    → Create bot if < 25% (fill to exactly 25%)
+    → Remove bot before order creation
+    → Check warehouse stock via fulfillDemand()
+    → Create orders for paid real participants
     → Notify factory owner to start production
+    → Notify participants session confirmed
+    → Status: moq_reached
   ELSE:
     → Status: failed
-    → Issue refunds to all paid participants
-    → Send failure notifications
+    → Issue full refunds to original payment method
+    → Notify participants session failed
+    → Notify factory session failed
 ```
 
 **Response:**
@@ -544,6 +652,49 @@ For each expired session:
   }
 }
 ```
+
+---
+
+#### `POST /api/group-buying/process-nearing-expiration` ⭐ NEW
+**Cron job endpoint** - Process sessions 10 minutes before expiration for bot auto-join.
+
+**Should run:** Every 1-2 minutes via cron
+
+**Processing Logic:**
+```
+For each session with 8-10 minutes remaining:
+  IF no real participants:
+    → Mark session as 'failed'
+    → Create new identical session for next day (midnight start)
+    → Ensures continuous product availability
+  ELSE IF realQuantity < 25% of MOQ:
+    → Create/find platform bot user
+    → Calculate botQuantity = ceil(MOQ × 0.25) - realQuantity
+    → Create bot participant with:
+        • quantity: botQuantity
+        • unit_price: price_tier_25
+        • is_bot_participant: true
+        • is_platform_order: true
+    → Update session with bot_participant_id
+  ELSE:
+    → No action needed (already >= 25%)
+```
+
+**Response:**
+```json
+{
+  "message": "Near-expiring sessions processed",
+  "data": {
+    "processed": 3
+  }
+}
+```
+
+**Important:**
+- This endpoint implements the bot auto-join system
+- Must run MORE frequently than `/process-expired` to catch 10-minute window
+- Bot ensures minimum 25% MOQ reached for viable sessions
+- Auto-renewal prevents products from becoming unavailable
 
 ---
 
@@ -667,12 +818,98 @@ joined_at             TIMESTAMP DEFAULT NOW()
 - Retrieves warehouse details for Leg 1 shipping origin
 - Used in shipping options calculation
 
-### 5. Notification Service
-- Sends emails for:
-  - MOQ reached
-  - Session expired (success/failed)
-  - Production started/completed
-  - Refund issued
+### 5. Notification Service ✅ FULLY IMPLEMENTED
+**Endpoint:** `POST /api/notifications`
+
+Sends in-app notifications for all critical events:
+
+**Notification Types:**
+
+1. **MOQ Reached** (`moq_reached`)
+   - Recipient: Factory owner
+   - Trigger: When session reaches target MOQ
+   - Message: "Your group buying session has reached MOQ! Start production in your dashboard"
+
+2. **Group Confirmed** (`group_confirmed`)
+   - Recipient: All participants
+   - Trigger: When MOQ is reached
+   - Message: "The group has been confirmed! Production will start soon"
+
+3. **Production Started** (`production_started`)
+   - Recipient: All participants
+   - Trigger: Factory calls `/start-production`
+   - Message: "Production has started. Factory is manufacturing your order"
+
+4. **Production Completed** (`production_completed`)
+   - Recipient: All participants
+   - Trigger: Factory calls `/complete-production`
+   - Message: "Your order is complete and ready for shipping"
+
+5. **Session Confirmed** (`session_confirmed`)
+   - Recipient: All participants
+   - Trigger: Session expires successfully
+   - Message: "Your session has been confirmed! Orders have been created"
+
+6. **Start Production** (`start_production`)
+   - Recipient: Factory owner
+   - Trigger: Session expires successfully
+   - Message: "Session confirmed. Please start production"
+
+7. **Session Failed** (`session_failed`)
+   - Recipient: All participants
+   - Trigger: Session expires without reaching MOQ
+   - Message: "Session didn't reach MOQ. Your payment will be refunded"
+
+8. **Session Failed (Factory)** (`session_failed_factory`)
+   - Recipient: Factory owner
+   - Trigger: Session expires without reaching MOQ
+   - Message: "Session failed to reach MOQ"
+
+9. **Session Cancelled** (`session_cancelled`)
+   - Recipient: All participants
+   - Trigger: Admin cancels session
+   - Message: "Session has been cancelled. Your payment will be refunded"
+
+10. **Session Cancelled (Factory)** (`session_cancelled_factory`)
+    - Recipient: Factory owner
+    - Trigger: Admin cancels session
+    - Message: "Session has been cancelled"
+
+**Implementation Details:**
+- All notifications sent via `sendNotification()` and `sendBulkNotifications()` helpers
+- Bulk notifications sent in parallel using `Promise.allSettled()`
+- Failures logged but don't block core operations
+- Each notification includes `actionUrl` for deep linking
+- Timeout: 5 seconds per notification call
+
+### 6. Wallet Service ✅ INTEGRATED
+**Endpoint:** `POST /api/wallet/credit`
+
+Used for tier-based refunds on successful sessions:
+
+```json
+{
+  "userId": "uuid",
+  "amount": 150000,
+  "description": "Group buying refund - Session GB-123 (Tier 75%)",
+  "reference": "GROUP_REFUND_sessionId_participantId",
+  "metadata": {
+    "sessionId": "uuid",
+    "participantId": "uuid",
+    "basePricePerUnit": 200000,
+    "finalPricePerUnit": 155000,
+    "refundPerUnit": 45000,
+    "quantity": 10
+  }
+}
+```
+
+**Refund Flow:**
+- Triggered in `processExpiredSessions()` for successful sessions
+- Calculates: `basePrice - finalTierPrice`
+- Credits user wallet (not original payment method)
+- Failures logged but don't block session processing
+- No timeout/retry logic (fire and forget)
 
 ---
 
@@ -737,10 +974,31 @@ NOTIFICATION_SERVICE_URL=http://localhost:3007
 
 ## Cron Jobs
 
-### Process Expired Sessions
-**Schedule:** Every 10 minutes
+### 1. Process Sessions Nearing Expiration ⭐ CRITICAL
+**Schedule:** Every 1-2 minutes
+**Command:** `curl -X POST http://localhost:3004/api/group-buying/process-nearing-expiration`
+**Purpose:**
+- Add bot participants to sessions 10 minutes before expiration
+- Auto-renew sessions with zero participants
+- Must run MORE frequently than process-expired
+
+### 2. Process Expired Sessions
+**Schedule:** Every 5-10 minutes
 **Command:** `curl -X POST http://localhost:3004/api/group-buying/process-expired`
-**Purpose:** Automatically finalize expired sessions (success/failed)
+**Purpose:**
+- Finalize expired sessions (success/failed)
+- Create orders for successful sessions
+- Issue refunds for failed sessions
+- Send notifications to all stakeholders
+
+**Crontab Example:**
+```cron
+# Process nearing expiration (every 2 minutes)
+*/2 * * * * curl -X POST http://localhost:3004/api/group-buying/process-nearing-expiration
+
+# Process expired sessions (every 10 minutes)
+*/10 * * * * curl -X POST http://localhost:3004/api/group-buying/process-expired
+```
 
 ---
 
@@ -803,3 +1061,278 @@ Full interactive API documentation available at:
 **http://localhost:3004/api-docs**
 
 Test endpoints directly from the browser with example payloads.
+
+---
+
+## Recent Improvements & Transaction Safety
+
+### Transaction Safety in Join Operation
+
+**Problem:** Participant record created before payment, causing orphaned records on payment failure.
+
+**Solution (Implemented):**
+```typescript
+// Step 1: Create participant record (optimistic)
+participant = await repository.joinSession(data);
+
+// Step 2: Create escrow payment with retry logic
+try {
+    payment = await retryWithBackoff(
+        () => axios.post('/api/payments/escrow', paymentData),
+        { maxRetries: 3, initialDelay: 1000 }
+    );
+} catch (error) {
+    // Step 3: Atomic rollback on payment failure
+    await prisma.group_participants.delete({
+        where: { id: participant.id }
+    });
+    throw new Error('Payment failed');
+}
+```
+
+**Benefits:**
+- No orphaned participant records
+- Proper audit trail with detailed logging
+- Clear error messages for operations team
+- Retry logic for network resilience
+
+---
+
+### Escrow Release for Cancelled Sessions
+
+**Problem:** When admin cancels a session, participants' escrow payments were stuck.
+
+**Solution (Implemented):**
+```typescript
+// In cancelSession()
+if (participantCount > 0) {
+    await retryWithBackoff(
+        () => axios.post('/api/payments/refund-session', {
+            groupSessionId: sessionId,
+            reason: reason || 'Session cancelled by admin'
+        }),
+        { maxRetries: 3, initialDelay: 2000 }
+    );
+}
+
+// Notify all participants
+await sendBulkNotifications({
+    userIds: participantUserIds,
+    type: 'session_cancelled',
+    title: 'Group Session Cancelled',
+    message: 'Session has been cancelled. Your payment will be refunded.'
+});
+```
+
+**Benefits:**
+- Automatic refund processing on cancellation
+- Participants notified immediately
+- Factory owner informed
+- Retry logic ensures refunds complete
+
+---
+
+### Comprehensive Notification System
+
+**10 Notification Types Implemented:**
+
+| Event | Recipients | Trigger |
+|-------|-----------|---------|
+| MOQ Reached | Factory owner | Session reaches MOQ |
+| Group Confirmed | Participants | MOQ reached |
+| Production Started | Participants | Factory starts production |
+| Production Completed | Participants | Factory completes production |
+| Session Confirmed | Participants | Session expires successfully |
+| Start Production | Factory owner | Session expires successfully |
+| Session Failed | Participants | Session expires without MOQ |
+| Session Failed (Factory) | Factory owner | Session expires without MOQ |
+| Session Cancelled | Participants | Admin cancels session |
+| Session Cancelled (Factory) | Factory owner | Admin cancels session |
+
+**Implementation:**
+- All notifications sent via dedicated helper methods
+- Bulk notifications sent in parallel for performance
+- Failures logged but don't block core operations
+- Each notification includes deep link URL
+- 5-second timeout per notification call
+
+---
+
+### Order Unit Price Bug Fix
+
+**Problem:** Orders incorrectly using tier price instead of actual paid price.
+
+**Incorrect Code:**
+```typescript
+unitPrice: finalPrice  // WRONG - tier price (e.g., 85,000)
+```
+
+**Correct Code:**
+```typescript
+unitPrice: Number(p.unit_price)  // CORRECT - base price paid (e.g., 100,000)
+```
+
+**Why This Matters:**
+- Orders must reflect what user actually paid
+- Tier-based discount handled separately via wallet refund
+- Financial reconciliation requires accurate payment records
+- Revenue recognition matches payment flow
+
+---
+
+### Warehouse Tolerance Bug Fix
+
+**Problem:** Variant tolerance comparison failed due to type mismatch.
+
+**Bug:**
+```typescript
+// String 'null' compared to boolean null
+t => (t.variant_id || 'null') === (bundle.variant_id || null)
+```
+
+**Fix:**
+```typescript
+// Both sides use string 'null'
+t => (t.variant_id || 'null') === (bundle.variant_id || 'null')
+```
+
+**Impact:**
+- Warehouse tolerance constraints now properly enforced
+- Variant locking works correctly
+- Prevents excess inventory accumulation
+
+---
+
+### Unpaid Participants Filter
+
+**Problem:** Warehouse reserved stock for ALL participants including unpaid.
+
+**Fix:**
+```typescript
+// Filter to only paid participants
+const participants = await prisma.group_participants.findMany({
+    where: {
+        group_session_id: sessionId,
+        payments: {
+            some: {
+                payment_status: 'paid'
+            }
+        }
+    }
+});
+```
+
+**Impact:**
+- Prevents stock overallocation
+- Accurate warehouse demand calculation
+- Only confirmed orders affect inventory
+
+---
+
+## Documentation Change Log
+
+### November 2025 - Major Update
+
+**Critical Corrections:**
+1. ✅ Bot creation timing corrected (NOT during session creation, but 10 min before expiration)
+2. ✅ Session auto-renewal documented
+3. ✅ New endpoint documented: `/process-nearing-expiration`
+4. ✅ Two cron jobs requirement clarified
+5. ✅ Escrow payment system fully documented
+6. ✅ Tier-based wallet refund system explained
+7. ✅ Notification integration status updated (fully implemented)
+8. ✅ Transaction safety improvements documented
+9. ✅ Order unit price bug fix explained
+10. ✅ Wallet service integration documented
+
+**New Features Documented:**
+- Session auto-renewal for products with zero participants
+- Bot auto-join system with 10-minute window
+- Comprehensive notification system (10 types)
+- Escrow release for cancelled sessions
+- Transaction rollback safety
+- Warehouse tolerance enforcement
+
+**Accuracy Status:** ✅ Documentation now matches actual implementation
+
+---
+
+## Production Checklist
+
+Before deploying to production:
+
+### Required Setup
+- [ ] Configure both cron jobs (nearing expiration + expired)
+- [ ] Set up platform bot user: `platform-bot@system.internal`
+- [ ] Verify `NOTIFICATION_SERVICE_URL` environment variable
+- [ ] Verify `WALLET_SERVICE_URL` environment variable
+- [ ] Test escrow payment flow end-to-end
+- [ ] Test tier-based refund calculation
+
+### Integration Testing
+- [ ] Verify notification delivery for all 10 types
+- [ ] Test session auto-renewal (zero participants)
+- [ ] Test bot creation (< 25% MOQ at 10 min)
+- [ ] Verify warehouse tolerance constraints
+- [ ] Test cancelled session refund flow
+- [ ] Verify payment rollback on failure
+
+### Monitoring
+- [ ] Set up alerts for payment service timeouts
+- [ ] Monitor bot creation rate and patterns
+- [ ] Track session auto-renewal frequency
+- [ ] Monitor notification delivery failures
+- [ ] Alert on high refund volumes
+
+### Known Issues
+⚠️ **Payment Service:** Has webhook race condition and incomplete admin refund implementation (see PAYMENT_SERVICE_ANALYSIS.md)
+
+---
+
+## Support & Troubleshooting
+
+### Common Issues
+
+**Issue:** Bot not creating for sessions near expiration
+- **Cause:** `/process-nearing-expiration` cron not running
+- **Fix:** Verify cron job runs every 1-2 minutes
+
+**Issue:** Sessions auto-renewing unexpectedly
+- **Cause:** All sessions with zero participants auto-renew
+- **Fix:** This is intended behavior to ensure product availability
+
+**Issue:** Notifications not sending
+- **Cause:** `NOTIFICATION_SERVICE_URL` misconfigured
+- **Fix:** Verify environment variable and service availability
+
+**Issue:** Wallet refunds not appearing
+- **Cause:** Wallet service unavailable or request timeout
+- **Fix:** Check wallet service logs, failures are logged but don't block session
+
+**Issue:** Variant locked error
+- **Cause:** Warehouse tolerance exceeded for variant
+- **Fix:** Use `/variant-availability/:variantId` endpoint to diagnose
+
+### Debug Endpoints
+
+**Check variant availability:**
+```bash
+GET /api/group-buying/:sessionId/variant-availability/:variantId
+```
+
+**Force session expiration (testing):**
+```bash
+POST /api/group-buying/:id/manual-expire
+```
+
+**Check session stats:**
+```bash
+GET /api/group-buying/:id/stats
+```
+
+---
+
+For additional support, see:
+- **Swagger API Docs:** http://localhost:3004/api-docs
+- **Database Schema:** `/packages/database/prisma/schema.prisma`
+- **Integration Docs:** See individual service documentation
