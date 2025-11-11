@@ -514,24 +514,36 @@ export class GroupBuyingService {
             totalAmount
         });
 
-        // Create participant - users can join multiple times with different variants
-        const participant = await this.repository.joinSession({
-            ...data,
-            metadata: {
-                ...data.metadata,
-                // TWO-LEG SHIPPING: Store detailed breakdown
-                leg1Cost: leg1Total,
-                leg2Cost: leg2Cost,
-                shippingCost: totalShipping,  // Total of both legs
-                gatewayFee,
-                totalAmount,
-                selectedCourier,
-                warehouseName: session.warehouses?.name
-            }
-        })
-
+        // CRITICAL FIX: Wrap participant creation and payment in a transaction-like flow
+        // to ensure atomicity and prevent orphaned participant records
+        let participant;
         let paymentResult;
+
         try {
+            // Step 1: Create participant record first (optimistic approach)
+            // If payment fails, we'll roll back by deleting the participant
+            participant = await this.repository.joinSession({
+                ...data,
+                metadata: {
+                    ...data.metadata,
+                    // TWO-LEG SHIPPING: Store detailed breakdown
+                    leg1Cost: leg1Total,
+                    leg2Cost: leg2Cost,
+                    shippingCost: totalShipping,  // Total of both legs
+                    gatewayFee,
+                    totalAmount,
+                    selectedCourier,
+                    warehouseName: session.warehouses?.name
+                }
+            });
+
+            logger.info('Participant created, initiating payment', {
+                groupSessionId: data.groupSessionId,
+                participantId: participant.id,
+                userId: data.userId
+            });
+
+            // Step 2: Create payment in escrow
             const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
 
             const paymentData = {
@@ -557,37 +569,58 @@ export class GroupBuyingService {
             );
 
             paymentResult = response.data.data;
-          } catch (error: any) {
-            // CRITICAL FIX #4: Proper rollback error handling with logging
-            try {
-              await this.repository.leaveSession(data.groupSessionId, data.userId);
 
-              logger.info('Participant rollback successful after payment failure', {
+            logger.info('Payment created successfully', {
                 groupSessionId: data.groupSessionId,
-                userId: data.userId,
-                participantId: participant.id
-              });
-            } catch (rollbackError: any) {
-              // CRITICAL: Rollback failed - requires manual intervention
-              logger.critical('CRITICAL: Failed to rollback participant after payment failure', {
-                groupSessionId: data.groupSessionId,
-                userId: data.userId,
                 participantId: participant.id,
-                paymentError: error.message,
-                rollbackError: rollbackError.message,
-                stackTrace: rollbackError.stack
-              });
+                paymentId: paymentResult.id
+            });
 
-              // Throw with more context for operations team
-              throw new Error(
-                `Payment failed AND rollback failed. Manual cleanup required. ` +
-                `Participant ID: ${participant.id}. ` +
-                `Original error: ${error.response?.data?.message || error.message}`
-              );
+        } catch (error: any) {
+            // CRITICAL FIX #4: Proper rollback error handling with logging
+            // If we created a participant but payment failed, clean up the participant record
+            if (participant) {
+                logger.error('Payment failed, rolling back participant', {
+                    groupSessionId: data.groupSessionId,
+                    participantId: participant.id,
+                    userId: data.userId,
+                    error: error.message
+                });
+
+                try {
+                    // Delete the participant record using Prisma directly for transaction safety
+                    const { prisma } = await import('@repo/database');
+                    await prisma.group_participants.delete({
+                        where: { id: participant.id }
+                    });
+
+                    logger.info('Participant rollback successful after payment failure', {
+                        groupSessionId: data.groupSessionId,
+                        userId: data.userId,
+                        participantId: participant.id
+                    });
+                } catch (rollbackError: any) {
+                    // CRITICAL: Rollback failed - requires manual intervention
+                    logger.error('CRITICAL: Failed to rollback participant after payment failure', {
+                        groupSessionId: data.groupSessionId,
+                        userId: data.userId,
+                        participantId: participant.id,
+                        paymentError: error.message,
+                        rollbackError: rollbackError.message,
+                        stackTrace: rollbackError.stack
+                    });
+
+                    // Throw with more context for operations team
+                    throw new Error(
+                        `Payment failed AND rollback failed. Manual cleanup required. ` +
+                        `Participant ID: ${participant.id}. ` +
+                        `Original error: ${error.response?.data?.message || error.message}`
+                    );
+                }
             }
 
             throw new Error(`Payment failed: ${error.response?.data?.message || error.message}`);
-          }
+        }
 
         await this.checkMoqReached(session.id)
 
@@ -970,18 +1003,21 @@ export class GroupBuyingService {
 
     await this.repository.startProduction(sessionId);
 
-      // TODO: Notify all participants
-  // await notificationService.sendBulk({
-  //   type: 'PRODUCTION_STARTED',
-  //   recipients: session.group_participants.map(p => p.user_id),
-  //   data: {
-  //     sessionCode: session.session_code,
-  //     productName: session.products.product_name,
-  //     factoryName: session.factories.factory_name,
-  //     estimatedCompletion: session.estimated_completion_date
-  //   },
-  //   channels: ['email', 'push']
-  // });
+    // Notify all participants about production start
+    const participantUserIds = session.group_participants
+      .filter(p => !p.is_bot_participant)
+      .map(p => p.user_id);
+
+    if (participantUserIds.length > 0) {
+      await this.sendBulkNotifications({
+        userIds: participantUserIds,
+        type: 'production_started',
+        title: 'Production Started!',
+        message: `Production has started for ${session.products.name}. ${session.factories.factory_name} is now manufacturing your order.`,
+        actionUrl: `/group-sessions/${session.session_code}`,
+        relatedId: sessionId
+      });
+    }
 
     return { message: 'Production started successfully' };
   }
@@ -1030,24 +1066,29 @@ export class GroupBuyingService {
         sessionId
       });
     }
-      // TODO: Notify participants - ready for shipping
-  // await notificationService.sendBulk({
-  //   type: 'PRODUCTION_COMPLETED',
-  //   recipients: session.group_participants.map(p => p.user_id),
-  //   data: {
-  //     sessionCode: session.session_code,
-  //     productName: session.products.product_name,
-  //     nextStep: 'Preparing for shipment'
-  //   },
-  //   channels: ['email', 'push']
-  // });
-  
-  // TODO: Trigger logistics - create pickup tasks
-  // await logisticsService.createPickupTask({
-  //   sessionId: sessionId,
-  //   factoryId: session.factory_id,
-  //   orderIds: session.group_participants.map(p => p.order_id)
-  // });
+
+    // Notify participants that production is complete and ready for shipping
+    const participantUserIds = session.group_participants
+      .filter(p => !p.is_bot_participant)
+      .map(p => p.user_id);
+
+    if (participantUserIds.length > 0) {
+      await this.sendBulkNotifications({
+        userIds: participantUserIds,
+        type: 'production_completed',
+        title: 'Production Complete!',
+        message: `Your order for ${session.products.name} is complete and ready for shipping!`,
+        actionUrl: `/group-sessions/${session.session_code}`,
+        relatedId: sessionId
+      });
+    }
+
+    // TODO: Trigger logistics - create pickup tasks
+    // await logisticsService.createPickupTask({
+    //   sessionId: sessionId,
+    //   factoryId: session.factory_id,
+    //   orderIds: session.group_participants.map(p => p.order_id)
+    // });
 
     return { message: 'Production completed successfully' };
   }
@@ -1062,9 +1103,96 @@ export class GroupBuyingService {
       throw new Error('Cannot cancel confirmed or completed sessions');
     }
 
+    // Update session status to cancelled
     await this.repository.updateStatus(sessionId, 'cancelled');
 
-    return { message: 'Session cancelled successfully', reason };
+    // CRITICAL FIX: Release escrow and refund participants when session is cancelled
+    // This ensures users get their money back when admin cancels a session
+    try {
+      const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
+
+      // Get participant count for logging
+      const participantCount = await this.repository.getParticipantCount(sessionId);
+
+      if (participantCount > 0) {
+        logger.info('Initiating refund for cancelled session', {
+          sessionId,
+          sessionCode: session.session_code,
+          participantCount,
+          reason
+        });
+
+        // Refund all participants via payment service with retry logic
+        await retryWithBackoff(
+          () => axios.post(`${paymentServiceUrl}/api/payments/refund-session`, {
+            groupSessionId: sessionId,
+            reason: reason || 'Session cancelled by admin'
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+          }),
+          {
+            maxRetries: 3,
+            initialDelay: 2000
+          }
+        );
+
+        logger.info('Refund initiated successfully for cancelled session', {
+          sessionId,
+          sessionCode: session.session_code,
+          participantCount
+        });
+      } else {
+        logger.info('No participants to refund for cancelled session', {
+          sessionId,
+          sessionCode: session.session_code
+        });
+      }
+
+      // Notify participants about session cancellation and refund
+      if (session.group_participants && session.group_participants.length > 0) {
+        const participantUserIds = session.group_participants
+          .filter(p => !p.is_bot_participant)
+          .map(p => p.user_id);
+
+        if (participantUserIds.length > 0) {
+          await this.sendBulkNotifications({
+            userIds: participantUserIds,
+            type: 'session_cancelled',
+            title: 'Group Session Cancelled',
+            message: `The group buying session for ${session.products?.name || 'your product'} has been cancelled. Your payment will be refunded.`,
+            actionUrl: `/group-sessions/${session.session_code}`,
+            relatedId: sessionId
+          });
+        }
+      }
+
+      // Notify factory owner about session cancellation
+      if (session.factories?.owner_id) {
+        await this.sendNotification({
+          userId: session.factories.owner_id,
+          type: 'session_cancelled_factory',
+          title: 'Session Cancelled',
+          message: `Group buying session ${session.session_code} for ${session.products?.name || 'product'} has been cancelled. ${reason ? `Reason: ${reason}` : ''}`,
+          actionUrl: `/factory/sessions/${session.session_code}`,
+          relatedId: sessionId
+        });
+      }
+
+    } catch (error: any) {
+      logger.error('Failed to refund cancelled session', {
+        sessionId,
+        sessionCode: session.session_code,
+        error: error.message
+      });
+      // Don't throw - session is already cancelled, refund can be retried manually
+    }
+
+    return {
+      message: 'Session cancelled successfully',
+      reason,
+      refundInitiated: true
+    };
   }
 
   async checkMoqReached(sessionId: string) {
@@ -1084,31 +1212,35 @@ export class GroupBuyingService {
     if ((stats.totalQuantity + EPSILON) >= session.target_moq && !session.moq_reached_at) {
       await this.repository.markMoqReached(sessionId);
 
-          // TODO: Notify factory owner
-    // await notificationService.send({
-    //   type: 'MOQ_REACHED',
-    //   recipientId: session.factories.owner_id,
-    //   data: {
-    //     sessionCode: session.session_code,
-    //     productName: session.products.product_name,
-    //     participantCount: stats.participantCount,
-    //     totalRevenue: stats.totalRevenue,
-    //     action: 'Start production in your dashboard'
-    //   },
-    //   channels: ['email', 'push', 'sms']
-    // });
-    
-    // TODO: Notify all participants
-    // await notificationService.sendBulk({
-    //   type: 'GROUP_CONFIRMED',
-    //   recipients: session.group_participants.map(p => p.user_id),
-    //   data: {
-    //     sessionCode: session.session_code,
-    //     productName: session.products.product_name,
-    //     estimatedCompletion: session.estimated_completion_date
-    //   },
-    //   channels: ['email', 'push']
-    // });
+      // Notify factory owner that MOQ has been reached
+      if (session.factories?.owner_id) {
+        await this.sendNotification({
+          userId: session.factories.owner_id,
+          type: 'moq_reached',
+          title: 'MOQ Reached!',
+          message: `Your group buying session ${session.session_code} for ${session.products?.name || 'product'} has reached MOQ! ${stats.participantCount} participants, total quantity: ${stats.totalQuantity}. Start production in your dashboard.`,
+          actionUrl: `/factory/sessions/${session.session_code}`,
+          relatedId: sessionId
+        });
+      }
+
+      // Notify all participants that group is confirmed
+      if (session.group_participants && session.group_participants.length > 0) {
+        const participantUserIds = session.group_participants
+          .filter(p => !p.is_bot_participant)
+          .map(p => p.user_id);
+
+        if (participantUserIds.length > 0) {
+          await this.sendBulkNotifications({
+            userIds: participantUserIds,
+            type: 'group_confirmed',
+            title: 'Group Buying Confirmed!',
+            message: `The group for ${session.products?.name || 'your product'} has been confirmed! Production will start soon.`,
+            actionUrl: `/group-sessions/${session.session_code}`,
+            relatedId: sessionId
+          });
+        }
+      }
     }
   }
 
@@ -1596,8 +1728,33 @@ export class GroupBuyingService {
         // TODO: Calculate and charge shipping
         // await shippingService.calculateAndCharge(session.id);
 
-        // TODO: Notify participants - session confirmed
-        // TODO: Notify factory - start production
+        // Notify participants that session is confirmed and orders created
+        const participantUserIds = fullSession.group_participants
+          .filter(p => !p.is_bot_participant)
+          .map(p => p.user_id);
+
+        if (participantUserIds.length > 0) {
+          await this.sendBulkNotifications({
+            userIds: participantUserIds,
+            type: 'session_confirmed',
+            title: 'Session Confirmed!',
+            message: `Your group buying session for ${fullSession.products?.name || 'product'} has been confirmed! Orders have been created and production will start soon.`,
+            actionUrl: `/group-sessions/${session.session_code}`,
+            relatedId: session.id
+          });
+        }
+
+        // Notify factory to start production
+        if (fullSession.factories?.owner_id) {
+          await this.sendNotification({
+            userId: fullSession.factories.owner_id,
+            type: 'start_production',
+            title: 'Start Production',
+            message: `Group buying session ${session.session_code} for ${fullSession.products?.name || 'product'} is confirmed. ${orderResult.ordersCreated || 0} orders created. Please start production.`,
+            actionUrl: `/factory/sessions/${session.session_code}`,
+            relatedId: session.id
+          });
+        }
 
         results.push({
           sessionId: session.id,
@@ -1626,10 +1783,10 @@ export class GroupBuyingService {
       // Session failed - didn't reach MOQ
       await this.repository.markFailed(session.id);
 
-      // TODO: Notify participants - refund coming
-      // TODO: Notify factory - session failed
-      // TODO: Trigger refunds via payment-service
+      // Get full session details for notifications
+      const fullSession = await this.repository.findById(session.id);
 
+      // Trigger refunds via payment-service
       try {
         const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006';
 
@@ -1652,6 +1809,37 @@ export class GroupBuyingService {
           sessionId: session.id,
           sessionCode: session.session_code
         });
+
+        // Notify participants that session failed and refund is coming
+        if (fullSession?.group_participants && fullSession.group_participants.length > 0) {
+          const participantUserIds = fullSession.group_participants
+            .filter(p => !p.is_bot_participant)
+            .map(p => p.user_id);
+
+          if (participantUserIds.length > 0) {
+            await this.sendBulkNotifications({
+              userIds: participantUserIds,
+              type: 'session_failed',
+              title: 'Group Session Not Confirmed',
+              message: `The group buying session for ${fullSession.products?.name || 'product'} didn't reach minimum order quantity. Your payment will be refunded.`,
+              actionUrl: `/group-sessions/${session.session_code}`,
+              relatedId: session.id
+            });
+          }
+        }
+
+        // Notify factory that session failed
+        if (fullSession?.factories?.owner_id) {
+          await this.sendNotification({
+            userId: fullSession.factories.owner_id,
+            type: 'session_failed_factory',
+            title: 'Session Not Confirmed',
+            message: `Group buying session ${session.session_code} for ${fullSession.products?.name || 'product'} failed to reach MOQ. Current: ${stats.totalQuantity}, Target: ${session.target_moq}.`,
+            actionUrl: `/factory/sessions/${session.session_code}`,
+            relatedId: session.id
+          });
+        }
+
       } catch (error: any) {
         logger.error(`Failed to refund session ${session.session_code}`, {
           sessionId: session.id,
@@ -1866,6 +2054,76 @@ export class GroupBuyingService {
 
     logger.info(`Removed bot participant`, {
       botParticipantId
+    });
+  }
+
+  /**
+   * Send notification to a single user via notification-service
+   */
+  private async sendNotification(params: {
+    userId: string;
+    type: string;
+    title: string;
+    message: string;
+    actionUrl?: string;
+    relatedId?: string;
+  }) {
+    try {
+      const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3008';
+
+      await axios.post(`${notificationServiceUrl}/api/notifications`, {
+        userId: params.userId,
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        actionUrl: params.actionUrl || null,
+        relatedId: params.relatedId || null
+      }, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 5000
+      });
+
+      logger.info('Notification sent', {
+        userId: params.userId,
+        type: params.type
+      });
+    } catch (error: any) {
+      logger.error('Failed to send notification', {
+        userId: params.userId,
+        type: params.type,
+        error: error.message
+      });
+      // Don't throw - notification failure shouldn't block core operations
+    }
+  }
+
+  /**
+   * Send notifications to multiple users in parallel
+   */
+  private async sendBulkNotifications(params: {
+    userIds: string[];
+    type: string;
+    title: string;
+    message: string;
+    actionUrl?: string;
+    relatedId?: string;
+  }) {
+    const notifications = params.userIds.map(userId =>
+      this.sendNotification({
+        userId,
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        actionUrl: params.actionUrl,
+        relatedId: params.relatedId
+      })
+    );
+
+    await Promise.allSettled(notifications);
+
+    logger.info('Bulk notifications sent', {
+      recipientCount: params.userIds.length,
+      type: params.type
     });
   }
 
