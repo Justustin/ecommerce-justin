@@ -225,7 +225,7 @@ model group_buying_sessions {
   bot_participant_id        String?                     @db.Uuid
   warehouse_id              String?                     @db.Uuid
   bulk_shipping_cost        Decimal?                    @default(0.00) @db.Decimal(12, 2)
-  bulk_shipping_cost_per_unit Decimal?                  @default(0.00) @db.Decimal(12, 2)
+  bulk_shipping_cost_per_unit Decimal?                  @default(dbgenerated()) @db.Decimal(12, 2)
   warehouses                warehouses?                 @relation(fields: [warehouse_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factories                 factories                   @relation(fields: [factory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   products                  products                    @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

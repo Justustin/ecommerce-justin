@@ -38,7 +38,7 @@ export class GroupBuyingRepository {
         // TWO-LEG SHIPPING: Store warehouse and bulk shipping cost
         warehouse_id: (data as any).warehouseId || null,
         bulk_shipping_cost: (data as any).bulkShippingCost || 0,
-        bulk_shipping_cost_per_unit: (data as any).bulkShippingCostPerUnit || 0,
+        // bulk_shipping_cost_per_unit is auto-calculated by database (GENERATED COLUMN)
         // status defaults to 'forming' from schema
       },
       include: {
