@@ -67,7 +67,11 @@ export class PaymentService {
     };
   }
 
-async handlePaidCallback(callbackData: any) {
+// CRITICAL FIX #3: Accept transaction parameter for atomic operations
+async handlePaidCallback(callbackData: any, tx?: typeof prisma) {
+  // Use transaction client if provided, otherwise use default prisma
+  const dbClient = tx || prisma;
+
   const payment = await this.repository.findByGatewayTransactionId(
     callbackData.id
   );
@@ -82,7 +86,7 @@ async handlePaidCallback(callbackData: any) {
   }
 
   const gatewayFee = callbackData.fees_paid_amount || 0;
-  
+
   // Check if this is an escrow payment (no order yet)
   const isEscrowPayment = !payment.order_id && payment.is_in_escrow;
   const isGroupBuying = payment.orders?.group_session_id !== null || isEscrowPayment;
@@ -96,7 +100,8 @@ async handlePaidCallback(callbackData: any) {
 
   // Only update order status if order exists
   if (payment.order_id) {
-    await prisma.orders.update({
+    // CRITICAL FIX: Use transaction client for order update
+    await dbClient.orders.update({
       where: { id: payment.order_id },
       data: {
         status: 'paid',
@@ -106,7 +111,7 @@ async handlePaidCallback(callbackData: any) {
     });
 
     // Record transaction in ledger
-    const orderItems = await prisma.order_items.findFirst({
+    const orderItems = await dbClient.order_items.findFirst({
       where: { order_id: payment.order_id },
       select: { factory_id: true }
     });
@@ -131,7 +136,7 @@ async handlePaidCallback(callbackData: any) {
     console.log(`Escrow payment ${payment.id} marked as paid for group session ${payment.group_session_id}`);
   }
 
-  return { 
+  return {
     message: 'Payment processed successfully',
     payment
   };

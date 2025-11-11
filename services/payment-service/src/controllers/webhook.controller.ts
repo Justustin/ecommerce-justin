@@ -26,24 +26,26 @@ export class WebhookController {
       const callbackData = req.body;
       const eventId = callbackData.id || callbackData.external_id;
 
-      const existingEvent = await prisma.$queryRaw`
-        SELECT * FROM webhook_events WHERE event_id = ${eventId}
+      // CRITICAL FIX #1: Use ON CONFLICT to prevent race condition
+      // Two concurrent webhooks could both pass the SELECT check and try to insert
+      // Using ON CONFLICT ensures only one insert succeeds, the other is ignored
+      const insertResult = await prisma.$executeRaw`
+        INSERT INTO webhook_events (event_id, event_type, payload, processed)
+        VALUES (${eventId}, ${callbackData.status || 'unknown'}, ${JSON.stringify(callbackData)}::jsonb, false)
+        ON CONFLICT (event_id) DO NOTHING
+        RETURNING *
       `;
 
-      if (Array.isArray(existingEvent) && existingEvent.length > 0) {
-        console.log(`Webhook event ${eventId} already processed - ignoring`);
+      // If insertResult is 0, the event already exists (concurrent webhook)
+      if (insertResult === 0) {
+        console.log(`Webhook event ${eventId} already processed by concurrent request - ignoring`);
         return res.json({ received: true, message: 'Already processed' });
       }
 
-      await prisma.$executeRaw`
-        INSERT INTO webhook_events (event_id, event_type, payload, processed)
-        VALUES (${eventId}, ${callbackData.status || 'unknown'}, ${JSON.stringify(callbackData)}::jsonb, false)
-      `;
-
       if (callbackData.status === 'PAID') {
-        // CRITICAL FIX: Make webhook processing atomic with transaction
+        // CRITICAL FIX #2: Pass transaction object to handlePaidCallback for atomicity
         await prisma.$transaction(async (tx) => {
-          await this.paymentService.handlePaidCallback(callbackData);
+          await this.paymentService.handlePaidCallback(callbackData, tx);
 
           await tx.$executeRaw`
             UPDATE webhook_events

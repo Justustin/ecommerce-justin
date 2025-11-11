@@ -4,6 +4,7 @@ import { prisma } from '@repo/database';
 import { PaymentRepository } from '../repositories/payment.repository';
 import { RefundRepository } from '../repositories/refund.repository';
 import { TransactionLedgerRepository } from '../repositories/transaction-ledger.repository';
+import { RefundService } from '../services/refund.service';
 import axios from 'axios';
 
 const XENDIT_API_KEY = process.env.XENDIT_API_KEY || '';
@@ -13,11 +14,13 @@ export class AdminController {
     private paymentRepo: PaymentRepository;
     private refundRepo: RefundRepository;
     private ledgerRepo: TransactionLedgerRepository;
+    private refundService: RefundService;
 
     constructor() {
         this.paymentRepo = new PaymentRepository();
         this.refundRepo = new RefundRepository();
         this.ledgerRepo = new TransactionLedgerRepository();
+        this.refundService = new RefundService();
     }
 
     /**
@@ -243,25 +246,38 @@ export class AdminController {
                 });
             }
 
-            // Update refund status to processing
-            const updated = await prisma.refunds.update({
+            // Update refund status with approval details
+            await prisma.refunds.update({
                 where: { id },
                 data: {
-                    refund_status: 'processing',
                     approved_at: new Date(),
                     admin_note: adminNote,
                     updated_at: new Date()
                 }
             });
 
-            // TODO: Trigger actual refund processing with Xendit
-            // For now, we just mark as processing
+            // CRITICAL FIX #3: Actually process the refund through Xendit
+            // This was a TODO that was never implemented!
+            try {
+                const result = await this.refundService.processRefund(id);
 
-            res.json({
-                success: true,
-                message: 'Refund approved and processing',
-                data: updated
-            });
+                res.json({
+                    success: true,
+                    message: 'Refund approved and processed successfully',
+                    data: result.refund
+                });
+            } catch (refundError: any) {
+                console.error('Refund processing failed:', refundError);
+
+                // Mark refund as failed
+                await this.refundRepo.markFailed(id, refundError.message);
+
+                return res.status(500).json({
+                    success: false,
+                    error: 'Refund approved but processing failed',
+                    details: refundError.message
+                });
+            }
         } catch (error: any) {
             console.error('Approve refund error:', error);
             res.status(500).json({ success: false, error: error.message });
@@ -369,24 +385,28 @@ export class AdminController {
                 description: description || 'Manual refund by admin'
             }, payment);
 
-            // Auto-approve and process
-            await this.refundRepo.markProcessing(refund.id);
+            // CRITICAL FIX: Actually process the refund through Xendit
+            // Previously just marked as processing without calling Xendit API
+            try {
+                const result = await this.refundService.processRefund(refund.id);
 
-            // Record in transaction ledger
-            await this.ledgerRepo.recordRefund(
-                refund.id,
-                paymentId,
-                payment.order_id || '',
-                refund.refund_amount,
-                reason,
-                { manual: true, admin_initiated: true }
-            );
+                res.json({
+                    success: true,
+                    message: 'Manual refund created and processed successfully',
+                    data: result.refund
+                });
+            } catch (refundError: any) {
+                console.error('Manual refund processing failed:', refundError);
 
-            res.json({
-                success: true,
-                message: 'Manual refund created and processing',
-                data: refund
-            });
+                // Mark refund as failed
+                await this.refundRepo.markFailed(refund.id, refundError.message);
+
+                return res.status(500).json({
+                    success: false,
+                    error: 'Manual refund created but processing failed',
+                    details: refundError.message
+                });
+            }
         } catch (error: any) {
             console.error('Process manual refund error:', error);
             res.status(500).json({ success: false, error: error.message });
