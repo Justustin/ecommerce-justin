@@ -1569,7 +1569,7 @@ export class GroupBuyingService {
                   productId: fullSession.product_id,
                   variantId: p.variant_id || undefined,
                   quantity: p.quantity,
-                  unitPrice: finalPrice  // Use final tier price, not join-time price
+                  unitPrice: Number(p.unit_price)  // Price they actually paid when joining (base price) - refund handled separately
                 }))
               })
             });
