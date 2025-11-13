@@ -1377,7 +1377,7 @@ export class GroupBuyingService {
             }
 
             // Create bot participant
-            await prisma.group_participants.create({
+            const botParticipant = await prisma.group_participants.create({
               data: {
                 group_session_id: session.id,
                 user_id: botUserId,
@@ -1388,6 +1388,24 @@ export class GroupBuyingService {
                 is_bot_participant: true,
                 is_platform_order: true,
                 joined_at: new Date()
+              }
+            });
+
+            // CRITICAL FIX: Create payment record for bot so it's counted in MOQ
+            await prisma.payments.create({
+              data: {
+                user_id: botUserId,
+                group_session_id: session.id,
+                participant_id: botParticipant.id,
+                payment_method: 'platform_bot',
+                payment_status: 'paid',
+                order_amount: Number(session.price_tier_25) * botQuantityNeeded,
+                total_amount: Number(session.price_tier_25) * botQuantityNeeded,
+                currency: 'IDR',
+                payment_code: `BOT-${session.session_code}-${Date.now()}`,
+                is_in_escrow: false,
+                paid_at: new Date(),
+                gateway_response: JSON.stringify({ type: 'bot_payment', auto_paid: true })
               }
             });
 
@@ -1538,8 +1556,11 @@ export class GroupBuyingService {
       let botCreated = false;
       try {
         await prisma.$transaction(async (tx) => {
-          // If < 25%, create bot to fill to 25%
-          if (realFillPercentage < 25) {
+          // Check if bot already exists (from near-expiration processing)
+          const existingBot = fullSession.group_participants.find(p => p.is_bot_participant);
+
+          // If < 25%, create bot to fill to 25% (only if doesn't already exist)
+          if (realFillPercentage < 25 && !existingBot) {
             const botQuantity = Math.ceil(fullSession.target_moq * 0.25) - realQuantity;
 
             if (botQuantity > 0) {
@@ -1558,13 +1579,31 @@ export class GroupBuyingService {
                   }
                 });
 
+                // CRITICAL FIX: Create payment record for bot so it's counted in MOQ
+                await tx.payments.create({
+                  data: {
+                    user_id: botUserId,
+                    group_session_id: session.id,
+                    participant_id: botParticipant.id,
+                    payment_method: 'platform_bot',
+                    payment_status: 'paid',
+                    order_amount: Number(fullSession.group_price) * botQuantity,
+                    total_amount: Number(fullSession.group_price) * botQuantity,
+                    currency: 'IDR',
+                    payment_code: `BOT-${fullSession.session_code}-${Date.now()}`,
+                    is_in_escrow: false,
+                    paid_at: new Date(),
+                    gateway_response: JSON.stringify({ type: 'bot_payment', auto_paid: true })
+                  }
+                });
+
                 await tx.group_buying_sessions.update({
                   where: { id: session.id },
                   data: { bot_participant_id: botParticipant.id }
                 });
 
                 botCreated = true;
-                logger.info('Bot created to fill to 25% MOQ', {
+                logger.info('Bot created to fill to 25% MOQ with payment record', {
                   sessionId: session.id,
                   botQuantity,
                   realQuantity,
@@ -1572,6 +1611,11 @@ export class GroupBuyingService {
                 });
               }
             }
+          } else if (existingBot) {
+            logger.info('Bot already exists from near-expiration processing, skipping creation', {
+              sessionId: session.id,
+              existingBotId: existingBot.id
+            });
           }
 
           // Update session with final tier (in same transaction)
