@@ -890,10 +890,11 @@ export class GroupBuyingService {
     const { prisma } = await import('@repo/database');
 
     try {
-      // Get all variant quantities from participants who have PAID
+      // Get all variant quantities from REAL participants who have PAID (exclude bot)
       const participants = await prisma.group_participants.findMany({
         where: {
           group_session_id: sessionId,
+          is_bot_participant: false,  // Exclude bot - bot is just for MOQ calculation
           payments: {
             some: {
               payment_status: 'paid'
@@ -1392,6 +1393,7 @@ export class GroupBuyingService {
             });
 
             // CRITICAL FIX: Create payment record for bot so it's counted in MOQ
+            // Bot payment amount is 0 since no real money is paid (bot is just illusion)
             await prisma.payments.create({
               data: {
                 user_id: botUserId,
@@ -1399,13 +1401,17 @@ export class GroupBuyingService {
                 participant_id: botParticipant.id,
                 payment_method: 'platform_bot',
                 payment_status: 'paid',
-                order_amount: Number(session.price_tier_25) * botQuantityNeeded,
-                total_amount: Number(session.price_tier_25) * botQuantityNeeded,
+                order_amount: 0,  // No real money - bot is just for MOQ calculation
+                total_amount: 0,  // No real money - bot is just for MOQ calculation
                 currency: 'IDR',
                 payment_code: `BOT-${session.session_code}-${Date.now()}`,
                 is_in_escrow: false,
                 paid_at: new Date(),
-                gateway_response: JSON.stringify({ type: 'bot_payment', auto_paid: true })
+                gateway_response: JSON.stringify({
+                  type: 'bot_payment',
+                  auto_paid: true,
+                  note: 'Virtual payment - bot participant for MOQ fill'
+                })
               }
             });
 
@@ -1580,6 +1586,7 @@ export class GroupBuyingService {
                 });
 
                 // CRITICAL FIX: Create payment record for bot so it's counted in MOQ
+                // Bot payment amount is 0 since no real money is paid (bot is just illusion)
                 await tx.payments.create({
                   data: {
                     user_id: botUserId,
@@ -1587,13 +1594,17 @@ export class GroupBuyingService {
                     participant_id: botParticipant.id,
                     payment_method: 'platform_bot',
                     payment_status: 'paid',
-                    order_amount: Number(fullSession.group_price) * botQuantity,
-                    total_amount: Number(fullSession.group_price) * botQuantity,
+                    order_amount: 0,  // No real money - bot is just for MOQ calculation
+                    total_amount: 0,  // No real money - bot is just for MOQ calculation
                     currency: 'IDR',
                     payment_code: `BOT-${fullSession.session_code}-${Date.now()}`,
                     is_in_escrow: false,
                     paid_at: new Date(),
-                    gateway_response: JSON.stringify({ type: 'bot_payment', auto_paid: true })
+                    gateway_response: JSON.stringify({
+                      type: 'bot_payment',
+                      auto_paid: true,
+                      note: 'Virtual payment - bot participant for MOQ fill'
+                    })
                   }
                 });
 
