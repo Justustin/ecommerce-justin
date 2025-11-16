@@ -761,6 +761,7 @@ model users {
   other_users                            users[]                     @relation("usersTousers")
   wallet_transactions                    wallet_transactions[]
   wallet_withdrawals                     wallet_withdrawals[]
+  warehouse_audit_logs                   warehouse_audit_logs[]
   warehouse_purchase_orders              warehouse_purchase_orders[]
 
   @@index([email], map: "idx_users_email")
@@ -781,6 +782,27 @@ model webhook_events {
 
   @@index([event_id], map: "idx_webhook_events_id")
   @@index([processed, created_at], map: "idx_webhook_events_processed")
+}
+
+/// WhatsApp messages sent via Baileys (for factory notifications, customer updates, etc.)
+model whatsapp_messages {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recipient_phone String    @db.VarChar(20)
+  message_body    String
+  status          String    @db.VarChar(20)  // pending, sent, delivered, read, failed
+  sent_at         DateTime? @db.Timestamptz(6)
+  delivered_at    DateTime? @db.Timestamptz(6)
+  read_at         DateTime? @db.Timestamptz(6)
+  failed_reason   String?
+  metadata        Json?     // Reference to order, PO, etc.
+  retry_count     Int       @default(0)
+  max_retries     Int       @default(3)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([recipient_phone], map: "idx_whatsapp_recipient")
+  @@index([status], map: "idx_whatsapp_status")
+  @@index([created_at(sort: Desc)], map: "idx_whatsapp_created")
 }
 
 model otps {
@@ -1013,23 +1035,49 @@ model wallet_withdrawals {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model warehouse_inventory {
-  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  product_id         String            @db.Uuid
-  variant_id         String?           @db.Uuid
-  quantity           Int               @default(0)
-  reserved_quantity  Int               @default(0)
-  available_quantity Int?              @default(dbgenerated("(quantity - reserved_quantity)"))
-  location           String?           @db.VarChar(100)
-  min_stock_level    Int?              @default(0)
-  last_restocked_at  DateTime?         @db.Timestamptz(6)
-  last_sold_at       DateTime?         @db.Timestamptz(6)
-  created_at         DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime          @default(now()) @db.Timestamptz(6)
-  products           products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  product_variants   product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id              String                    @db.Uuid
+  variant_id              String?                   @db.Uuid
+  quantity                Int                       @default(0)
+  reserved_quantity       Int                       @default(0)
+  available_quantity      Int?                      @default(dbgenerated("(quantity - reserved_quantity)"))
+  location                String?                   @db.VarChar(100)
+  min_stock_level         Int?                      @default(0)
+  last_restocked_at       DateTime?                 @db.Timestamptz(6)
+  last_sold_at            DateTime?                 @db.Timestamptz(6)
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  products                products                  @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants        product_variants?         @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  warehouse_audit_logs    warehouse_audit_logs[]
 
   @@unique([product_id, variant_id])
   @@index([product_id], map: "idx_warehouse_inventory_product")
+}
+
+/// Audit log for all warehouse inventory changes (adjustments, reservations, releases, etc.)
+model warehouse_audit_logs {
+  id                      String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  warehouse_inventory_id  String              @db.Uuid
+  action_type             String              @db.VarChar(50)  // adjustment, reservation, release, restock, sale, etc.
+  admin_id                String?             @db.Uuid
+  before_quantity         Int
+  after_quantity          Int
+  before_reserved         Int
+  after_reserved          Int
+  quantity_change         Int                 // Calculated: after_quantity - before_quantity
+  reason                  String?             @db.VarChar(255)
+  notes                   String?
+  reference_type          String?             @db.VarChar(50)  // order, group_session, manual, etc.
+  reference_id            String?             @db.Uuid
+  created_at              DateTime            @default(now()) @db.Timestamptz(6)
+  warehouse_inventory     warehouse_inventory @relation(fields: [warehouse_inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                   users?              @relation(fields: [admin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([warehouse_inventory_id], map: "idx_warehouse_audit_inventory")
+  @@index([admin_id], map: "idx_warehouse_audit_admin")
+  @@index([created_at(sort: Desc)], map: "idx_warehouse_audit_created")
+  @@index([action_type], map: "idx_warehouse_audit_action")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

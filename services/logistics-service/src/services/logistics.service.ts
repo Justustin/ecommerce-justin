@@ -427,6 +427,19 @@ export class LogisticsService {
     return this.repository.findById(data.shipmentId);
   }
 
+  /**
+   * Track shipment by tracking number
+   */
+  async trackShipment(trackingNumber: string) {
+    const shipment = await this.repository.findByTrackingNumber(trackingNumber);
+
+    if (!shipment) {
+      throw new Error(`Shipment with tracking number ${trackingNumber} not found`);
+    }
+
+    return shipment;
+  }
+
   async handleBiteshipWebhook(payload: any) {
     const orderId = payload.order_id;
     const waybillId = payload.courier?.waybill_id;
@@ -495,9 +508,74 @@ export class LogisticsService {
       })
     };
 
-    // TODO: Generate actual PDF or HTML label using a template library
-    // For now, return the label data
-    return labelData;
+    if (format === 'html') {
+      // Generate printable HTML label
+      const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Shipping Label - ${labelData.trackingNumber}</title>
+  <style>
+    @page { size: 10cm 15cm; margin: 0; }
+    @media print { body { margin: 0; } .no-print { display: none; } }
+    body { font-family: Arial, sans-serif; width: 10cm; height: 15cm; margin: 0; padding: 10mm; box-sizing: border-box; }
+    .label-container { border: 2px solid #000; padding: 5mm; height: 100%; display: flex; flex-direction: column; }
+    .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 3mm; margin-bottom: 3mm; }
+    .courier-name { font-size: 18pt; font-weight: bold; }
+    .tracking { font-size: 14pt; font-weight: bold; margin: 2mm 0; }
+    .section { margin-bottom: 3mm; }
+    .section-title { font-size: 9pt; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #000; margin-bottom: 1mm; }
+    .address { font-size: 10pt; line-height: 1.4; }
+    .info-row { display: flex; justify-content: space-between; font-size: 9pt; margin: 1mm 0; }
+  </style>
+</head>
+<body>
+  <div class="label-container">
+    <div class="header">
+      <div class="courier-name">${labelData.courierName}</div>
+      <div>Service: ${labelData.serviceType}</div>
+      <div class="tracking">${labelData.trackingNumber}</div>
+    </div>
+    <div class="section">
+      <div class="section-title">From</div>
+      <div class="address">
+        <strong>${labelData.senderName}</strong><br>
+        ${labelData.senderAddress}<br>
+        ${labelData.senderCity} ${labelData.senderPostalCode}<br>
+        Tel: ${labelData.senderPhone}
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">To</div>
+      <div class="address">
+        <strong>${labelData.recipientName}</strong><br>
+        ${labelData.recipientAddress}<br>
+        ${labelData.recipientCity} ${labelData.recipientPostalCode}<br>
+        Tel: ${labelData.recipientPhone}
+      </div>
+    </div>
+    <div class="section">
+      <div class="info-row"><span>Order: ${labelData.orderNumber}</span><span>Weight: ${labelData.weight} kg</span></div>
+      <div class="info-row"><span>Date: ${labelData.shippingDate}</span><span>Items: ${labelData.quantity}</span></div>
+      <div style="font-size: 8pt; margin-top: 1mm;">${labelData.itemDescription}</div>
+    </div>
+  </div>
+  <div class="no-print" style="margin-top: 10px; text-align: center;">
+    <button onclick="window.print()" style="padding: 10px 20px; font-size: 14px;">Print Label</button>
+  </div>
+</body>
+</html>`;
+      return html;
+    }
+
+    // For PDF: Return data with HTML for client-side printing
+    // TODO: Install pdfkit for server-side PDF generation
+    return {
+      format: 'json',
+      data: labelData,
+      note: 'Call with format=html parameter for printable label, or install pdfkit for PDF generation'
+    };
   }
 
   private mapBiteshipStatus(biteshipStatus: string): shipment_status {

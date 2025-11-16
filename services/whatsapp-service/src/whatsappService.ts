@@ -115,4 +115,4 @@ const getConnectionStatus = () => {
 
 const startWhatsApp = () => startBot('bot1');
 
-export {sendOTP, startWhatsApp, getConnectionStatus}
+export {sendOTP, sendMessage, startWhatsApp, getConnectionStatus}

@@ -132,28 +132,50 @@ export class AdminController {
         newQuantity = quantity;
       }
 
-      // Upsert inventory
-      const inventory = await prisma.warehouse_inventory.upsert({
-        where: {
-          product_id_variant_id: {
+      // Upsert inventory and create audit log in transaction
+      const result = await prisma.$transaction(async (tx) => {
+        const inventory = await tx.warehouse_inventory.upsert({
+          where: {
+            product_id_variant_id: {
+              product_id: productId,
+              variant_id: variantId || 'null'
+            }
+          },
+          update: {
+            quantity: adjustmentType === 'set' ? quantity :
+              adjustmentType === 'add' ? { increment: quantity } : { decrement: quantity },
+            updated_at: new Date()
+          },
+          create: {
             product_id: productId,
-            variant_id: variantId || 'null'
+            variant_id: variantId || 'null',
+            quantity: quantity,
+            reserved_quantity: 0
           }
-        },
-        update: {
-          available_quantity: newQuantity,
-          updated_at: new Date()
-        },
-        create: {
-          product_id: productId,
-          variant_id: variantId || 'null',
-          available_quantity: newQuantity,
-          reserved_quantity: 0
-        }
+        });
+
+        // Create audit log entry
+        await tx.warehouse_audit_logs.create({
+          data: {
+            warehouse_inventory_id: inventory.id,
+            action_type: `manual_${adjustmentType}`,
+            admin_id: (req as any).user?.id || null,  // Get admin ID from auth middleware
+            before_quantity: existing?.quantity || 0,
+            after_quantity: inventory.quantity,
+            before_reserved: existing?.reserved_quantity || 0,
+            after_reserved: inventory.reserved_quantity,
+            quantity_change: inventory.quantity - (existing?.quantity || 0),
+            reason: reason || `Manual ${adjustmentType} adjustment`,
+            notes: notes || null,
+            reference_type: 'manual_adjustment',
+            reference_id: null
+          }
+        });
+
+        return inventory;
       });
 
-      // TODO: Create audit log entry
-      // await prisma.warehouse_audit_log.create({...})
+      const inventory = result;
 
       res.json({
         message: 'Stock adjusted successfully',
@@ -206,18 +228,39 @@ export class AdminController {
         });
       }
 
-      const updated = await prisma.warehouse_inventory.update({
-        where: {
-          product_id_variant_id: {
-            product_id: productId,
-            variant_id: variantId || 'null'
+      const updated = await prisma.$transaction(async (tx) => {
+        const updatedInventory = await tx.warehouse_inventory.update({
+          where: {
+            product_id_variant_id: {
+              product_id: productId,
+              variant_id: variantId || 'null'
+            }
+          },
+          data: {
+            reserved_quantity: { increment: quantity },
+            updated_at: new Date()
           }
-        },
-        data: {
-          available_quantity: inventory.available_quantity - quantity,
-          reserved_quantity: inventory.reserved_quantity + quantity,
-          updated_at: new Date()
-        }
+        });
+
+        // Create audit log entry
+        await tx.warehouse_audit_logs.create({
+          data: {
+            warehouse_inventory_id: updatedInventory.id,
+            action_type: 'reservation',
+            admin_id: (req as any).user?.id || null,
+            before_quantity: inventory.quantity,
+            after_quantity: updatedInventory.quantity,
+            before_reserved: inventory.reserved_quantity,
+            after_reserved: updatedInventory.reserved_quantity,
+            quantity_change: 0,  // Total quantity unchanged, just reserved
+            reason: reason || 'Stock reservation',
+            notes: null,
+            reference_type: 'reservation',
+            reference_id: referenceId || null
+          }
+        });
+
+        return updatedInventory;
       });
 
       res.json({
@@ -270,18 +313,39 @@ export class AdminController {
         });
       }
 
-      const updated = await prisma.warehouse_inventory.update({
-        where: {
-          product_id_variant_id: {
-            product_id: productId,
-            variant_id: variantId || 'null'
+      const updated = await prisma.$transaction(async (tx) => {
+        const updatedInventory = await tx.warehouse_inventory.update({
+          where: {
+            product_id_variant_id: {
+              product_id: productId,
+              variant_id: variantId || 'null'
+            }
+          },
+          data: {
+            reserved_quantity: { decrement: quantity },
+            updated_at: new Date()
           }
-        },
-        data: {
-          available_quantity: inventory.available_quantity + quantity,
-          reserved_quantity: inventory.reserved_quantity - quantity,
-          updated_at: new Date()
-        }
+        });
+
+        // Create audit log entry
+        await tx.warehouse_audit_logs.create({
+          data: {
+            warehouse_inventory_id: updatedInventory.id,
+            action_type: 'release',
+            admin_id: (req as any).user?.id || null,
+            before_quantity: inventory.quantity,
+            after_quantity: updatedInventory.quantity,
+            before_reserved: inventory.reserved_quantity,
+            after_reserved: updatedInventory.reserved_quantity,
+            quantity_change: 0,  // Total quantity unchanged, just unreserved
+            reason: reason || 'Reservation released',
+            notes: null,
+            reference_type: 'release',
+            reference_id: referenceId || null
+          }
+        });
+
+        return updatedInventory;
       });
 
       res.json({
@@ -458,31 +522,61 @@ export class AdminController {
         }
       });
 
-      // Update inventory for each received item
-      for (const item of receivedItems) {
-        const netReceived = item.quantityReceived - (item.quantityDamaged || 0);
+      // Update inventory for each received item with audit logging
+      await prisma.$transaction(async (tx) => {
+        for (const item of receivedItems) {
+          const netReceived = item.quantityReceived - (item.quantityDamaged || 0);
 
-        await prisma.warehouse_inventory.upsert({
-          where: {
-            product_id_variant_id: {
-              product_id: order.product_id,
-              variant_id: item.variantId || 'null'
+          // Get existing inventory before update
+          const existing = await tx.warehouse_inventory.findUnique({
+            where: {
+              product_id_variant_id: {
+                product_id: order.product_id,
+                variant_id: item.variantId || 'null'
+              }
             }
-          },
-          update: {
-            available_quantity: {
-              increment: netReceived
+          });
+
+          const updatedInventory = await tx.warehouse_inventory.upsert({
+            where: {
+              product_id_variant_id: {
+                product_id: order.product_id,
+                variant_id: item.variantId || 'null'
+              }
             },
-            updated_at: new Date()
-          },
-          create: {
-            product_id: order.product_id,
-            variant_id: item.variantId || 'null',
-            available_quantity: netReceived,
-            reserved_quantity: 0
-          }
-        });
-      }
+            update: {
+              quantity: { increment: netReceived },
+              last_restocked_at: new Date(),
+              updated_at: new Date()
+            },
+            create: {
+              product_id: order.product_id,
+              variant_id: item.variantId || 'null',
+              quantity: netReceived,
+              reserved_quantity: 0,
+              last_restocked_at: new Date()
+            }
+          });
+
+          // Create audit log entry
+          await tx.warehouse_audit_logs.create({
+            data: {
+              warehouse_inventory_id: updatedInventory.id,
+              action_type: 'restock',
+              admin_id: (req as any).user?.id || null,
+              before_quantity: existing?.quantity || 0,
+              after_quantity: updatedInventory.quantity,
+              before_reserved: existing?.reserved_quantity || 0,
+              after_reserved: updatedInventory.reserved_quantity,
+              quantity_change: netReceived,
+              reason: `PO received: ${order.po_number}`,
+              notes: item.quantityDamaged ? `${item.quantityDamaged} items damaged` : null,
+              reference_type: 'purchase_order',
+              reference_id: order.id
+            }
+          });
+        }
+      });
 
       res.json({
         message: 'Purchase order received successfully',
@@ -536,13 +630,103 @@ export class AdminController {
 
   /**
    * Admin: View audit log
-   * TODO: Implement warehouse_audit_log table
    */
   getAuditLog = async (req: Request, res: Response) => {
     try {
-      res.status(501).json({
-        message: 'Audit log not yet implemented',
-        note: 'Requires warehouse_audit_log table'
+      const {
+        page = 1,
+        limit = 50,
+        productId,
+        variantId,
+        actionType,
+        adminId,
+        startDate,
+        endDate
+      } = req.query;
+
+      const skip = (Number(page) - 1) * Number(limit);
+      const where: any = {};
+
+      // Filter by inventory ID if product/variant specified
+      if (productId) {
+        const inventoryWhere: any = { product_id: productId as string };
+        if (variantId) {
+          inventoryWhere.variant_id = variantId as string;
+        }
+
+        const inventory = await prisma.warehouse_inventory.findMany({
+          where: inventoryWhere,
+          select: { id: true }
+        });
+
+        if (inventory.length > 0) {
+          where.warehouse_inventory_id = {
+            in: inventory.map(i => i.id)
+          };
+        }
+      }
+
+      if (actionType) {
+        where.action_type = actionType as string;
+      }
+
+      if (adminId) {
+        where.admin_id = adminId as string;
+      }
+
+      if (startDate || endDate) {
+        where.created_at = {};
+        if (startDate) where.created_at.gte = new Date(startDate as string);
+        if (endDate) where.created_at.lte = new Date(endDate as string);
+      }
+
+      const [logs, total] = await Promise.all([
+        prisma.warehouse_audit_logs.findMany({
+          where,
+          skip,
+          take: Number(limit),
+          include: {
+            warehouse_inventory: {
+              include: {
+                products: {
+                  select: {
+                    id: true,
+                    name: true,
+                    sku: true
+                  }
+                },
+                product_variants: {
+                  select: {
+                    id: true,
+                    variant_name: true,
+                    sku: true
+                  }
+                }
+              }
+            },
+            users: {
+              select: {
+                id: true,
+                first_name: true,
+                last_name: true,
+                email: true
+              }
+            }
+          },
+          orderBy: { created_at: 'desc' }
+        }),
+        prisma.warehouse_audit_logs.count({ where })
+      ]);
+
+      res.json({
+        message: 'Audit logs retrieved successfully',
+        data: logs,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          totalPages: Math.ceil(total / Number(limit))
+        }
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

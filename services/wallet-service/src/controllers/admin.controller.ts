@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { validationResult } from 'express-validator';
 import { prisma } from '@repo/database';
 import { WalletRepository } from '../repositories/wallet.repository';
+import { xenditDisbursementClient } from '../config/xendit';
 
 export class AdminController {
     private repository: WalletRepository;
@@ -353,23 +354,74 @@ export class AdminController {
             }
 
             if (action === 'approve') {
-                // Approve and process withdrawal
-                const updated = await prisma.wallet_withdrawals.update({
-                    where: { id },
-                    data: {
-                        status: 'processing',
-                        processed_at: new Date(),
-                        admin_note: adminNote
-                    }
-                });
+                try {
+                    // Step 1: Update status to processing
+                    await prisma.wallet_withdrawals.update({
+                        where: { id },
+                        data: {
+                            status: 'processing',
+                            processed_at: new Date(),
+                            admin_note: adminNote
+                        }
+                    });
 
-                // TODO: Integrate with payment gateway to actually send money
+                    // Step 2: Create Xendit disbursement to actually send money
+                    const disbursement = await xenditDisbursementClient.create({
+                        externalID: `WD-${id}-${Date.now()}`,
+                        amount: Number(withdrawal.net_amount),
+                        bankCode: withdrawal.bank_code,
+                        accountHolderName: withdrawal.account_name,
+                        accountNumber: withdrawal.account_number,
+                        description: `Wallet withdrawal for ${withdrawal.users.first_name} ${withdrawal.users.last_name}`,
+                        emailTo: [withdrawal.users.email],
+                        emailCC: [],
+                        emailBCC: []
+                    });
 
-                res.json({
-                    success: true,
-                    message: 'Withdrawal approved and processing',
-                    data: updated
-                });
+                    // Step 3: Update withdrawal with disbursement details
+                    const updated = await prisma.wallet_withdrawals.update({
+                        where: { id },
+                        data: {
+                            status: 'completed',
+                            completed_at: new Date(),
+                            metadata: {
+                                xendit_disbursement_id: disbursement.id,
+                                xendit_user_id: disbursement.user_id,
+                                disbursement_status: disbursement.status,
+                                admin_note: adminNote
+                            }
+                        }
+                    });
+
+                    res.json({
+                        success: true,
+                        message: 'Withdrawal approved and money disbursed to bank account',
+                        data: {
+                            withdrawal: updated,
+                            disbursement: {
+                                id: disbursement.id,
+                                status: disbursement.status,
+                                amount: disbursement.amount
+                            }
+                        }
+                    });
+                } catch (disbursementError: any) {
+                    // If disbursement fails, update withdrawal to failed
+                    await prisma.wallet_withdrawals.update({
+                        where: { id },
+                        data: {
+                            status: 'failed',
+                            admin_note: `Disbursement failed: ${disbursementError.message}`
+                        }
+                    });
+
+                    console.error('Xendit disbursement failed:', disbursementError);
+                    return res.status(500).json({
+                        success: false,
+                        error: 'Failed to disburse funds to bank account',
+                        details: disbursementError.message
+                    });
+                }
             } else {
                 // Reject and refund to wallet
                 await prisma.$transaction(async (tx) => {

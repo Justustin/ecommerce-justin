@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '@repo/database';
+import { sendMessage } from '../whatsappService';
 
 export class AdminController {
     /**
@@ -192,20 +193,51 @@ export class AdminController {
         try {
             const { phoneNumber, message } = req.body;
 
-            // TODO: Integrate with actual WhatsApp sending logic
+            // Create message record in database
             const whatsappMessage = await prisma.whatsapp_messages.create({
                 data: {
-                    phone_number: phoneNumber,
-                    message,
+                    recipient_phone: phoneNumber,
+                    message_body: message,
                     status: 'pending'
                 }
             });
 
-            res.json({
-                success: true,
-                message: 'Test message queued',
-                data: whatsappMessage
-            });
+            // Actually send via WhatsApp using Baileys
+            const sendResult = await sendMessage(phoneNumber, message);
+
+            if (sendResult.success) {
+                // Update message status to sent
+                await prisma.whatsapp_messages.update({
+                    where: { id: whatsappMessage.id },
+                    data: {
+                        status: 'sent',
+                        sent_at: new Date(),
+                        updated_at: new Date()
+                    }
+                });
+
+                res.json({
+                    success: true,
+                    message: 'Message sent successfully via WhatsApp',
+                    data: whatsappMessage
+                });
+            } else {
+                // Update message status to failed
+                await prisma.whatsapp_messages.update({
+                    where: { id: whatsappMessage.id },
+                    data: {
+                        status: 'failed',
+                        failed_reason: sendResult.error || 'Unknown error',
+                        retry_count: 1,
+                        updated_at: new Date()
+                    }
+                });
+
+                res.status(500).json({
+                    success: false,
+                    error: sendResult.error || 'Failed to send message'
+                });
+            }
         } catch (error: any) {
             console.error('Send test message error:', error);
             res.status(500).json({ success: false, error: error.message });
