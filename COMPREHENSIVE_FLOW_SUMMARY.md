@@ -203,6 +203,7 @@ Payment Service: handleXenditCallback()
 
 ┌─────────────────────────────────────────────────────────────────┐
 │ STEP 5: SHIPPING (Triggered Separately)                         │
+│ ⚠️ NOT YET AUTOMATED - Requires manual admin action             │
 └─────────────────────────────────────────────────────────────────┘
 
 Admin/System → Logistics Service: POST /api/shipments
@@ -347,11 +348,11 @@ STEP 5: Create Escrow Payment
        ↓
   Webhook marks payment as 'paid' but keeps in escrow
 
-STEP 6: Check if MOQ Reached
-  After each join, checks:
-    currentQuantity = sum of all REAL paid participants
-    if (currentQuantity >= targetMoq):
-      Send notification: "MOQ reached! Session closing soon"
+STEP 6: Session Monitoring
+  After each join:
+    - Updates participant count
+    - Checks variant availability for next joins
+    - No intermediate MOQ notifications (session only ends when timer expires or admin terminates)
 ```
 
 ### Phase 2: Near-Expiration (10 minutes before end)
@@ -371,8 +372,11 @@ For each session expiring in 8-10 minutes:
 
   CASE 1: Zero Participants
     Mark as 'failed'
-    Create identical session for tomorrow (midnight start)
-    Purpose: Ensure product always available
+    Create identical session for next day (midnight start)
+    Purpose: Ensure product always available for purchase
+
+    ⚠️ NOTE: New sessions only created for 0 participant case
+    Sessions with participants do NOT auto-create new sessions
 
   CASE 2: < 25% Fill
     Calculate bot quantity needed:
@@ -472,10 +476,11 @@ STEP 4: Warehouse Stock Check
     Continue to next step
 
 STEP 5: Calculate Final Tier
-  Based on REAL participant fill percentage:
+  Based on ALL participant fill percentage (INCLUDING bot):
 
-  realQuantity = sum(realParticipants.quantity)
-  fillPercentage = (realQuantity / targetMoq) × 100
+  allParticipants = participants // Includes bot if exists
+  totalQuantity = sum(allParticipants.quantity)
+  fillPercentage = (totalQuantity / targetMoq) × 100
 
   Tiers:
     >= 100% → tier = 100, price = price_tier_100
@@ -483,7 +488,13 @@ STEP 5: Calculate Final Tier
     >= 50%  → tier = 50,  price = price_tier_50
     >= 25%  → tier = 25,  price = price_tier_25
 
-  (Bot NOT included in calculation)
+  ✅ Bot IS included in calculation
+
+  Why: This gives customers tier discounts even with low participation.
+  Example: 1 real customer (10 units) + bot (15 units) = 25% fill
+           → Customer gets tier 25% pricing discount
+
+  Trade-off: Customers get "undeserved" discounts, but improves conversion
 
 STEP 6: Issue Tier-Based Refunds to Wallet
   If final price < base price:
@@ -577,14 +588,20 @@ STEP 11: Notifications
 
 ---
 
-## 3. GROUP BUYING FLOW - FAILURE PATH (MOQ Not Reached)
+## 3. GROUP BUYING FLOW - FAILURE PATH
+
+**Note:** With the bot system in place, MOQ failure is extremely rare. Failure only occurs when:
+1. **Zero participants joined** (no one joined the session)
+2. **Admin manually cancels** the session
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ CRON JOB: processExpiredSessions() - MOQ Failed                 │
+│ CRON JOB: processExpiredSessions() - Session Failed             │
 └─────────────────────────────────────────────────────────────────┘
 
-Session expired but currentQuantity < targetMoq
+Failure triggers:
+- 0 participants joined (session empty)
+- Admin manually cancelled session
 
 STEP 1: Mark Session as Failed
   status = 'failed'
@@ -637,18 +654,25 @@ STEP 4: Notifications
 
 ## 4. BOT PARTICIPANT LOGIC
 
-### Purpose: "Just Illusion"
+### Purpose: "Generous Discount Provider"
 
-Bot exists ONLY to:
+Bot exists to:
 - ✅ Make UI show 25% minimum fill (makes session look viable)
 - ✅ Count toward MOQ calculation (allows session to complete)
+- ✅ **Count toward tier pricing calculation** (gives customers tier discounts)
 
 Bot does NOT:
-- ❌ Trigger warehouse to order inventory
+- ❌ Trigger warehouse to order inventory (only real demand counts)
 - ❌ Get real order created
 - ❌ Involve any real money (payment = $0)
 - ❌ Appear in any reports/analytics
 - ❌ Get notifications
+
+**Business Impact:**
+- 1 customer orders 10 units (10% of MOQ 100)
+- Bot adds 15 units to reach 25%
+- Customer gets tier 25% pricing (discounted price)
+- This is intentional to improve conversion rates
 
 ### Implementation Details:
 
@@ -672,11 +696,15 @@ BOT CREATION (Near-Expiration or Expiration):
       note: 'Virtual payment - bot participant for MOQ fill'
     }
 
-FILTERING BOT:
-  ✅ Line 897:  fulfillWarehouseDemand() excludes bot
-  ✅ Line 1528: Tier calculation uses real participants only
-  ✅ Line 1654: Refunds issued to real participants only
-  ✅ Line 1704: Bot deleted before creating orders
+WHERE BOT IS INCLUDED:
+  ✅ Tier pricing calculation (gives customers discounts)
+  ✅ MOQ validation (allows session to proceed)
+  ✅ UI participant count (makes session look viable)
+
+WHERE BOT IS EXCLUDED:
+  ✅ Line 897:  fulfillWarehouseDemand() excludes bot (no excess inventory)
+  ✅ Line 1654: Refunds issued to real participants only (bot has no money)
+  ✅ Line 1704: Bot deleted before creating orders (no bot order)
   ✅ Line 1721: Orders created for real participants only
   ✅ Multiple:  Notifications sent to real participants only
 
