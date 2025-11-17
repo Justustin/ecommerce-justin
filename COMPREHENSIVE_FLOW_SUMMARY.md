@@ -370,13 +370,18 @@ For each session expiring in 8-10 minutes:
     realQuantity = sum(realParticipants.quantity)
     fillPercentage = (realQuantity / targetMoq) × 100
 
-  CASE 1: Zero Participants
-    Mark as 'failed'
-    Create identical session for next day (midnight start)
-    Purpose: Ensure product always available for purchase
+  ✅ AUTO-RENEWAL FOR ALL SESSIONS:
+    After processing ANY expired session (success/failure/pending_stock):
+    → Create identical session for next day starting at midnight
 
-    ⚠️ NOTE: New sessions only created for 0 participant case
-    Sessions with participants do NOT auto-create new sessions
+    Purpose: Ensure product always available for continuous purchases
+
+    New session details:
+    - Start time: Next day 00:00:00
+    - End time: Next day 23:59:59
+    - Copies all pricing tiers
+    - Copies MOQ and product settings
+    - New session code generated
 
   CASE 2: < 25% Fill
     Calculate bot quantity needed:

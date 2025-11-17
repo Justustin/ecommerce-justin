@@ -735,6 +735,10 @@ export class GroupBuyingService {
           // Mark as pending_stock (new status)
           await this.repository.updateStatus(session.id, 'pending_stock');
 
+          // Create next day session even when pending stock
+          // This ensures continuous availability while waiting for factory
+          await this.createNextDaySession(session);
+
           results.push({
             sessionId: session.id,
             sessionCode: session.session_code,
@@ -982,6 +986,9 @@ export class GroupBuyingService {
         // TODO: Notify participants - session confirmed
         // TODO: Notify factory - start production
 
+        // Create next day session for continuous availability
+        await this.createNextDaySession(session);
+
         results.push({
           sessionId: session.id,
           sessionCode: session.session_code,
@@ -1042,6 +1049,9 @@ export class GroupBuyingService {
         });
       }
 
+      // Create next day session for continuous availability
+      await this.createNextDaySession(session);
+
       results.push({
         sessionId: session.id,
         sessionCode: session.session_code,
@@ -1054,6 +1064,81 @@ export class GroupBuyingService {
 
   return results;
 }
+
+  /**
+   * Create a new identical session for next day
+   * Called after any session expires to ensure continuous product availability
+   */
+  private async createNextDaySession(expiredSession: any) {
+    try {
+      const { prisma } = await import('@repo/database');
+
+      // Get product details to recreate session
+      const product = await prisma.products.findUnique({
+        where: { id: expiredSession.product_id },
+        include: { factories: true }
+      });
+
+      if (!product) {
+        logger.error('Product not found for expired session', {
+          sessionId: expiredSession.id,
+          productId: expiredSession.product_id
+        });
+        return;
+      }
+
+      // Calculate next day midnight as start time
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      // Session duration: 24 hours from midnight
+      const endTime = new Date(tomorrow);
+      endTime.setHours(23, 59, 59, 999);
+
+      // Generate new session code
+      const timestamp = Date.now().toString().slice(-6);
+      const newSessionCode = `GB-${expiredSession.product_id.slice(0, 8)}-${timestamp}`;
+
+      const newSessionData = {
+        productId: expiredSession.product_id,
+        factoryId: expiredSession.factory_id,
+        sessionCode: newSessionCode,
+        targetMoq: expiredSession.target_moq,
+        groupPrice: Number(expiredSession.group_price),
+        startTime: tomorrow,
+        endTime: endTime,
+
+        // Copy tier pricing
+        priceTier25: Number(expiredSession.price_tier_25),
+        priceTier50: Number(expiredSession.price_tier_50),
+        priceTier75: Number(expiredSession.price_tier_75),
+        priceTier100: Number(expiredSession.price_tier_100),
+
+        // Copy shipping cost if exists
+        bulkShippingCost: expiredSession.bulk_shipping_cost ? Number(expiredSession.bulk_shipping_cost) : undefined
+      };
+
+      const newSession = await this.createSession(newSessionData);
+
+      logger.info('Created next day session for expired session', {
+        expiredSessionId: expiredSession.id,
+        expiredSessionCode: expiredSession.session_code,
+        newSessionId: newSession.id,
+        newSessionCode: newSession.session_code,
+        startTime: tomorrow,
+        endTime: endTime
+      });
+
+      return newSession;
+    } catch (error: any) {
+      logger.error('Failed to create next day session', {
+        expiredSessionId: expiredSession.id,
+        error: error.message
+      });
+      // Don't throw - this shouldn't block processing of expired sessions
+    }
+  }
 
   private calculateTimeRemaining(endTime: Date): {
     hours: number;
