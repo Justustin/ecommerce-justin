@@ -822,20 +822,37 @@ export class GroupBuyingService {
         }
       }
 
-      // Determine final tier based on REAL user fill percentage (not including bot)
+      // Determine final tier based on ALL participants INCLUDING BOT
+      // This gives customers tier discounts even with low participation
+      // Reload participants to include bot if it was just created
+      const allParticipants = await prisma.group_participants.findMany({
+        where: { group_session_id: session.id }
+      });
+      const totalQuantity = allParticipants.reduce((sum, p) => sum + p.quantity, 0);
+      const totalFillPercentage = (totalQuantity / fullSession.target_moq) * 100;
+
       let finalTier = 25;
       let finalPrice = Number(fullSession.price_tier_25);
 
-      if (realFillPercentage >= 100) {
+      if (totalFillPercentage >= 100) {
         finalTier = 100;
         finalPrice = Number(fullSession.price_tier_100);
-      } else if (realFillPercentage >= 75) {
+      } else if (totalFillPercentage >= 75) {
         finalTier = 75;
         finalPrice = Number(fullSession.price_tier_75);
-      } else if (realFillPercentage >= 50) {
+      } else if (totalFillPercentage >= 50) {
         finalTier = 50;
         finalPrice = Number(fullSession.price_tier_50);
       }
+
+      logger.info('Final tier calculated with bot included', {
+        sessionId: session.id,
+        realQuantity,
+        botQuantity: totalQuantity - realQuantity,
+        totalQuantity,
+        fillPercentage: totalFillPercentage,
+        finalTier
+      });
 
       // Update session with final tier
       await prisma.group_buying_sessions.update({
@@ -928,19 +945,54 @@ export class GroupBuyingService {
       try {
         const orderServiceUrl = process.env.ORDER_SERVICE_URL || 'http://localhost:3005';
 
-        // TIERING SYSTEM: Filter out bot participants - only create orders for real users
-        const realParticipants = fullSession.group_participants.filter(
-          p => !p.is_bot_participant
-        );
+        // CRITICAL FIX #4: Filter to only PAID real participants
+        // Exclude bots AND ensure participant has paid
+        const paidRealParticipants = fullSession.group_participants.filter(p => {
+          // Must not be bot
+          if (p.is_bot_participant) return false;
 
-        if (realParticipants.length === 0) {
-          logger.warn('No real participants in session after filtering bots', {
-            sessionId: session.id
+          // Must have payments
+          if (!p.payments || p.payments.length === 0) {
+            logger.warn('Participant has no payments', {
+              sessionId: session.id,
+              participantId: p.id,
+              userId: p.user_id
+            });
+            return false;
+          }
+
+          // Must have at least one paid payment
+          const hasPaidPayment = p.payments.some(
+            payment => payment.payment_status === 'paid'
+          );
+
+          if (!hasPaidPayment) {
+            logger.warn('Participant has no paid payments', {
+              sessionId: session.id,
+              participantId: p.id,
+              userId: p.user_id,
+              paymentStatuses: p.payments.map(pay => pay.payment_status)
+            });
+          }
+
+          return hasPaidPayment;
+        });
+
+        if (paidRealParticipants.length === 0) {
+          logger.warn('No paid real participants in session', {
+            sessionId: session.id,
+            totalParticipants: fullSession.group_participants.length
           });
-          // Mark as failed since only bot was participating
+          // Mark as failed since no paid participants
           await this.repository.markFailed(session.id);
           continue;
         }
+
+        logger.info('Creating orders for paid participants', {
+          sessionId: session.id,
+          paidParticipants: paidRealParticipants.length,
+          totalParticipants: fullSession.group_participants.length
+        });
 
         // MAJOR FIX: Add retry logic for order creation
         const response = await retryWithBackoff(
@@ -950,7 +1002,7 @@ export class GroupBuyingService {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 groupSessionId: session.id,
-                participants: realParticipants.map(p => ({
+                participants: paidRealParticipants.map(p => ({
                   userId: p.user_id,
                   participantId: p.id,
                   productId: fullSession.product_id,

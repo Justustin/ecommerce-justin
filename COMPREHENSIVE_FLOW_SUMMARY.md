@@ -525,16 +525,28 @@ STEP 7: Delete Bot Participant
 
   Purpose: Bot doesn't get real order
 
-STEP 8: Create Orders for Real Participants
-  ✅ Filter out bot participants:
+STEP 8: Create Orders for PAID Real Participants
+  ✅ Critical filters applied:
 
-  realParticipants = participants.filter(!is_bot_participant)
+  paidRealParticipants = participants.filter(p => {
+    // 1. Exclude bot
+    if (p.is_bot_participant) return false;
+
+    // 2. Must have payments
+    if (!p.payments || p.payments.length === 0) return false;
+
+    // 3. Must have at least one PAID payment
+    return p.payments.some(pay => pay.payment_status === 'paid');
+  })
+
+  ⚠️ CRITICAL: Only participants with paid payments get orders
+  If participant has pending/failed payment: NO ORDER created
 
   Group Buying → Order Service:
   POST /api/orders/bulk
   {
     groupSessionId,
-    participants: realParticipants.map(p => ({
+    participants: paidRealParticipants.map(p => ({
       userId: p.user_id,
       productId: session.product_id,
       variantId: p.variant_id,
@@ -586,7 +598,7 @@ STEP 11: Notifications
 
 **Final State:**
 - Session marked as 'success'
-- Orders created for real participants only
+- Orders created for PAID real participants only (unpaid excluded)
 - Escrow released to warehouse
 - Bot deleted (no trace in orders)
 - Warehouse has reserved inventory OR factory notified

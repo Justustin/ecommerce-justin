@@ -113,6 +113,14 @@ export class GroupBuyingRepository {
                 variant_name: true,
                 price_adjustment: true
               }
+            },
+            payments: {
+              select: {
+                id: true,
+                payment_status: true,
+                order_amount: true,
+                payment_method: true
+              }
             }
           },
           orderBy: {
