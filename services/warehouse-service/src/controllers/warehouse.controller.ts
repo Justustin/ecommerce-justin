@@ -21,4 +21,17 @@ export class WarehouseController {
             res.status(500).json({ success: false, error: error.message });
         }
     };
+
+    fulfillBundleDemand = async (req: Request, res: Response) => {
+        try {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({ errors: errors.array() });
+            }
+            const result = await this.service.fulfillBundleDemand(req.body);
+            res.status(200).json({ success: true, ...result });
+        } catch (error: any) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    };
 }
