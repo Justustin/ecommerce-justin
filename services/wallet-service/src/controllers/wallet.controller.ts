@@ -44,4 +44,17 @@ export class WalletController {
             res.status(400).json({ success: false, error: error.message });
         }
     };
+
+    /**
+     * Process batch withdrawals
+     * Called by CRON job 2x per week
+     */
+    processBatchWithdrawals = async (req: Request, res: Response) => {
+        try {
+            const results = await this.service.processBatchWithdrawals();
+            res.status(200).json({ success: true, data: results });
+        } catch (error: any) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    };
 }

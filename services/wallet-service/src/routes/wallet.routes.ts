@@ -28,4 +28,7 @@ router.post('/withdrawals/request', [
     body('accountName').isString().notEmpty(),
 ], controller.requestWithdrawal);
 
+// POST /api/withdrawals/process-batch - Process all pending withdrawals (CRON only)
+router.post('/withdrawals/process-batch', controller.processBatchWithdrawals);
+
 export default router;

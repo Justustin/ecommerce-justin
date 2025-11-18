@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import walletRoutes from './routes/wallet.routes';
+import webhookRoutes from './routes/webhook.routes';
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ app.use(express.json());
 
 // Main application routes
 app.use('/api', walletRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 app.get('/', (req, res) => {
     res.send('Wallet Service is running!');
