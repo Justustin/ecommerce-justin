@@ -177,6 +177,18 @@ export class GroupBuyingController {
     }
   };
 
+  processNearExpiration = async (req: Request, res: Response) => {
+    try {
+      const results = await this.service.processSessionsNearingExpiration();
+      res.json({
+        message: 'Near-expiring sessions processed',
+        data: results
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
   processExpired = async (req: Request, res: Response) => {
     try {
       const results = await this.service.processExpiredSessions();

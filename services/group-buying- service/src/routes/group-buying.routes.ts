@@ -673,6 +673,30 @@ router.post(
 
 /**
  * @swagger
+ * /api/group-buying/process-near-expiration:
+ *   post:
+ *     tags: [Group Buying Sessions]
+ *     summary: Process sessions nearing expiration (cron job endpoint)
+ *     description: Creates bot participants for sessions expiring in 8-10 minutes if fill < 25%
+ *     responses:
+ *       200:
+ *         description: Near-expiring sessions processed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/process-near-expiration', controller.processNearExpiration);
+
+/**
+ * @swagger
  * /api/group-buying/process-expired:
  *   post:
  *     tags: [Group Buying Sessions]

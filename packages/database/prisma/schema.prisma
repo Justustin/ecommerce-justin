@@ -632,6 +632,7 @@ model product_variants {
   products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   grosir_variant_allocations grosir_variant_allocations[]
   grosir_bundle_config       grosir_bundle_config[]
+  grosir_warehouse_tolerance grosir_warehouse_tolerance[]
   seller_inventory_variants  seller_inventory_variants[]  // NEW: Seller variant inventory
   seller_stock_movements     seller_stock_movements[]     // NEW: Stock movements
 
@@ -669,16 +670,22 @@ model grosir_bundle_config {
   @@index([product_id], map: "idx_grosir_bundle_config_product")
 }
 
-/// Stores warehouse tolerance settings for grosir ordering
+/// NEW: Warehouse tolerance - maximum excess units acceptable per variant
+/// Controls how many bundles platform can buy from factory
 model grosir_warehouse_tolerance {
-  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  product_id       String   @unique @db.Uuid
-  tolerance_bundles Int     @default(1) // Number of extra bundles allowed as tolerance
-  created_at       DateTime @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime @default(now()) @db.Timestamptz(6)
-  products         products @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                      String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id              String            @db.Uuid
+  variant_id              String?           @db.Uuid
+  max_excess_units        Int
+  clearance_rate_estimate Int?
+  notes                   String?
+  created_at              DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime          @default(now()) @db.Timestamptz(6)
+  products                products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tolerance_product")
+  product_variants        product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tolerance_variant")
 
-  @@index([product_id], map: "idx_warehouse_tolerance_product")
+  @@unique([product_id, variant_id], map: "unique_tolerance_product_variant")
+  @@index([product_id], map: "idx_tolerance_product")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -716,7 +723,7 @@ model products {
   product_variants           product_variants[]
   grosir_variant_allocations grosir_variant_allocations[]
   grosir_bundle_config       grosir_bundle_config[]
-  grosir_warehouse_tolerance grosir_warehouse_tolerance?
+  grosir_warehouse_tolerance grosir_warehouse_tolerance[]
   seller_inventory           seller_inventory[]           // NEW: Seller inventory
   categories                 categories                   @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factories                  factories?                   @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)

@@ -465,11 +465,11 @@ export class GroupBuyingService {
       const grosirUnitSize = session.products.grosir_unit_size || 12;
       const results: WarehouseFulfillmentResult[] = [];
 
-      // Call warehouse /fulfill-demand for each variant
+      // Call warehouse /fulfill-bundle-demand for each variant
       // Warehouse service will handle stock check and factory WhatsApp
       for (const [variantId, quantity] of Object.entries(variantDemands)) {
         const response = await axios.post(
-          `${warehouseServiceUrl}/api/warehouse/fulfill-demand`,
+          `${warehouseServiceUrl}/api/warehouse/fulfill-bundle-demand`,
           {
             productId: session.product_id,
             variantId: variantId === 'base' ? null : variantId,
@@ -688,6 +688,158 @@ export class GroupBuyingService {
     }
   }
 
+  /**
+   * Process sessions nearing expiration (10 minutes before end)
+   * Creates bot participant if < 25% filled to ensure minimum fill
+   */
+  async processSessionsNearingExpiration() {
+    const { prisma } = await import('@repo/database');
+
+    // Find sessions expiring in 8-10 minutes
+    const now = new Date();
+    const tenMinutesLater = new Date(now.getTime() + 10 * 60 * 1000);
+    const eightMinutesLater = new Date(now.getTime() + 8 * 60 * 1000);
+
+    const nearExpiringSessions = await prisma.group_buying_sessions.findMany({
+      where: {
+        status: 'forming',
+        end_time: {
+          gte: eightMinutesLater,
+          lte: tenMinutesLater
+        },
+        bot_participant_id: null  // Only sessions without bot yet
+      },
+      include: {
+        group_participants: true,
+        products: true
+      }
+    });
+
+    const results: Array<{
+      sessionId: string;
+      sessionCode: string;
+      action: 'bot_created' | 'no_action_needed';
+      fillPercentage: number;
+      botQuantity?: number;
+    }> = [];
+
+    for (const session of nearExpiringSessions) {
+      try {
+        // Calculate real fill percentage (exclude any bots)
+        const realParticipants = session.group_participants.filter(p => !p.is_bot_participant);
+        const realQuantity = realParticipants.reduce((sum, p) => sum + p.quantity, 0);
+        const fillPercentage = (realQuantity / session.target_moq) * 100;
+
+        logger.info('Checking near-expiring session', {
+          sessionId: session.id,
+          sessionCode: session.session_code,
+          realQuantity,
+          targetMoq: session.target_moq,
+          fillPercentage,
+          timeUntilExpiry: Math.round((session.end_time.getTime() - now.getTime()) / 60000)
+        });
+
+        // If >= 25%, no action needed
+        if (fillPercentage >= 25) {
+          results.push({
+            sessionId: session.id,
+            sessionCode: session.session_code,
+            action: 'no_action_needed',
+            fillPercentage
+          });
+          continue;
+        }
+
+        // Create bot to fill to 25%
+        const botQuantity = Math.ceil(session.target_moq * 0.25) - realQuantity;
+        const botUserId = process.env.BOT_USER_ID;
+
+        if (!botUserId) {
+          logger.warn('BOT_USER_ID not configured - skipping bot creation', {
+            sessionId: session.id
+          });
+          continue;
+        }
+
+        // Create bot participant
+        const botParticipant = await prisma.group_participants.create({
+          data: {
+            group_session_id: session.id,
+            user_id: botUserId,
+            quantity: botQuantity,
+            variant_id: null,
+            unit_price: Number(session.group_price),
+            total_price: Number(session.group_price) * botQuantity,
+            is_bot_participant: true,
+            joined_at: new Date()
+          }
+        });
+
+        // Update session with bot reference
+        await prisma.group_buying_sessions.update({
+          where: { id: session.id },
+          data: {
+            bot_participant_id: botParticipant.id,
+            platform_bot_quantity: botQuantity
+          }
+        });
+
+        // Create bot payment record
+        try {
+          await prisma.payments.create({
+            data: {
+              user_id: botUserId,
+              group_session_id: session.id,
+              participant_id: botParticipant.id,
+              order_amount: 0,  // No real money - bot is illusion
+              total_amount: 0,  // Bot doesn't pay
+              payment_method: 'platform_bot',
+              payment_status: 'paid',
+              is_in_escrow: false,  // Not in escrow - no real payment
+              paid_at: new Date(),
+              payment_reference: `BOT-PREEMPTIVE-${session.id}-${botParticipant.id}`
+            }
+          });
+
+          logger.info('Bot created preemptively (near-expiration)', {
+            sessionId: session.id,
+            botQuantity,
+            realQuantity,
+            totalNow: realQuantity + botQuantity,
+            timeUntilExpiry: Math.round((session.end_time.getTime() - now.getTime()) / 60000)
+          });
+
+          results.push({
+            sessionId: session.id,
+            sessionCode: session.session_code,
+            action: 'bot_created',
+            fillPercentage,
+            botQuantity
+          });
+        } catch (error: any) {
+          logger.error('Failed to create bot payment', {
+            sessionId: session.id,
+            error: error.message
+          });
+          // Bot participant still exists, just no payment record
+        }
+      } catch (error: any) {
+        logger.error('Failed to process near-expiring session', {
+          sessionId: session.id,
+          error: error.message
+        });
+      }
+    }
+
+    logger.info('Near-expiring sessions processed', {
+      total: nearExpiringSessions.length,
+      botsCreated: results.filter(r => r.action === 'bot_created').length,
+      noActionNeeded: results.filter(r => r.action === 'no_action_needed').length
+    });
+
+    return results;
+  }
+
   async processExpiredSessions() {
   const expiredSessions = await this.repository.findExpiredSessions();
   const results: Array<
@@ -815,10 +967,11 @@ export class GroupBuyingService {
                     user_id: botUserId,
                     group_session_id: session.id,
                     participant_id: botParticipant.id,
-                    order_amount: botParticipant.total_price,
-                    payment_method: 'internal_bot',
+                    order_amount: 0,  // No real money - bot is illusion
+                    total_amount: 0,  // Bot doesn't pay
+                    payment_method: 'platform_bot',
                     payment_status: 'paid',
-                    is_escrow: true,
+                    is_in_escrow: false,  // Not in escrow - no real payment
                     paid_at: new Date(),
                     payment_reference: `BOT-${session.id}-${botParticipant.id}`
                   }
@@ -827,7 +980,7 @@ export class GroupBuyingService {
                 logger.info('Bot payment record created', {
                   sessionId: session.id,
                   paymentId: botPayment.id,
-                  amount: botParticipant.total_price
+                  amount: 0
                 });
               } catch (error: any) {
                 logger.error('Failed to create bot payment record', {
