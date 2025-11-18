@@ -450,9 +450,13 @@ export class GroupBuyingService {
     }
 
     try {
-      // Get all variant quantities from participants
+      // Get all variant quantities from REAL participants only (exclude bot)
+      // Bot is illusion - warehouse should only stock for real customer orders
       const participants = await prisma.group_participants.findMany({
-        where: { group_session_id: sessionId }
+        where: {
+          group_session_id: sessionId,
+          is_bot_participant: false  // CRITICAL: Exclude bot from warehouse demand
+        }
       });
 
       // Group by variant

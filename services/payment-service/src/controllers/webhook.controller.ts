@@ -12,16 +12,21 @@ export class WebhookController {
 
   handleXenditCallback = async (req: Request, res: Response) => {
     try {
-      const callbackToken = process.env.XENDIT_CALLBACK_TOKEN || '';
-      const receivedToken = req.headers['x-callback-token'] as string;
-      console.log(`callbackToken: ${callbackToken}, receivedToken: ${receivedToken}`);
+      // Get webhook verification token from environment
+      const webhookVerificationToken = process.env.XENDIT_WEBHOOK_VERIFICATION_TOKEN || '';
+      const receivedSignature = req.headers['x-callback-token'] as string;
 
-    if (!CryptoUtils.verifyXenditCallback(callbackToken, receivedToken)) {
-      console.warn('Invalid callback token received');
-      console.warn('Expected:', callbackToken);
-      console.warn('Received:', receivedToken);
-      return res.status(403).json({ error: 'Invalid callback token' });
-    }
+      // Get raw body for signature verification
+      // Note: Express must be configured with express.raw() or express.text() middleware
+      // to preserve the raw body for signature verification
+      const rawBody = JSON.stringify(req.body);
+
+      // Verify webhook signature using HMAC-SHA256
+      if (!CryptoUtils.verifyXenditWebhook(rawBody, receivedSignature, webhookVerificationToken)) {
+        console.warn('Invalid webhook signature received');
+        console.warn('Signature verification failed for webhook');
+        return res.status(403).json({ error: 'Invalid webhook signature' });
+      }
 
       const callbackData = req.body;
       const eventId = callbackData.id || callbackData.external_id;

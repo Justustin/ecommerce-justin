@@ -168,21 +168,83 @@ export class RefundService {
   }
 
   private async processEwalletRefund(payment: any, refund: any) {
-    // TODO: Implement actual Xendit e-wallet refund API call
-    // For now, simulate successful refund
-    console.log('Processing e-wallet refund:', {
+    console.log('Processing e-wallet refund via Xendit API:', {
       paymentId: payment.id,
       refundId: refund.id,
-      amount: refund.refund_amount
+      amount: refund.refund_amount,
+      chargeId: payment.gateway_transaction_id
     });
 
-    return {
-      status: 'SUCCESS',
-      refund_id: `xendit-ewallet-refund-${Date.now()}`,
-      amount: refund.refund_amount,
-      method: 'ewallet',
-      processed_at: new Date().toISOString()
-    };
+    // Get Xendit API key from environment
+    const xenditApiKey = process.env.XENDIT_SECRET_KEY;
+    if (!xenditApiKey) {
+      throw new Error('XENDIT_SECRET_KEY not configured');
+    }
+
+    // Validate that we have the charge ID
+    if (!payment.gateway_transaction_id) {
+      throw new Error('Cannot refund: missing gateway_transaction_id from payment');
+    }
+
+    try {
+      // Call Xendit E-wallet Refund API
+      // https://developers.xendit.co/api-reference/#refund-e-wallet-payment
+      const axios = require('axios');
+      const response = await axios.post(
+        `https://api.xendit.co/ewallets/charges/${payment.gateway_transaction_id}/refunds`,
+        {
+          amount: Math.round(Number(refund.refund_amount)), // Xendit requires integer
+          reason: refund.reason_description || 'Customer refund request',
+          reference_id: refund.refund_code,
+          metadata: {
+            refund_id: refund.id,
+            payment_id: payment.id,
+            user_id: refund.user_id
+          }
+        },
+        {
+          auth: {
+            username: xenditApiKey,
+            password: ''
+          },
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000 // 30 second timeout
+        }
+      );
+
+      console.log('Xendit refund response:', {
+        refundId: refund.id,
+        xenditRefundId: response.data.id,
+        status: response.data.status
+      });
+
+      return {
+        status: response.data.status, // SUCCESS, PENDING, or FAILED
+        refund_id: response.data.id,
+        amount: response.data.amount,
+        method: 'ewallet',
+        processed_at: response.data.created || new Date().toISOString(),
+        gateway_response: response.data
+      };
+    } catch (error: any) {
+      console.error('Xendit refund API error:', {
+        refundId: refund.id,
+        error: error.response?.data || error.message
+      });
+
+      // Check if it's a known error we can handle
+      if (error.response?.status === 400) {
+        throw new Error(`Xendit refund failed: ${error.response.data.message || 'Invalid request'}`);
+      } else if (error.response?.status === 404) {
+        throw new Error('Xendit charge not found - payment may not exist or already refunded');
+      } else if (error.response?.status === 409) {
+        throw new Error('Refund already processed for this payment');
+      }
+
+      throw new Error(`Xendit refund API error: ${error.message}`);
+    }
   }
 
   private async processBankRefund(payment: any, refund: any) {
