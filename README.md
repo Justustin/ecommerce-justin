@@ -51,6 +51,7 @@ ecommerce-justin/
 ├── WALLET_SERVICE_API.md          # Wallet API docs with Swagger
 ├── CRON_SETUP.md                  # CRON job setup guide
 ├── DEPLOYMENT.md                  # Production deployment guide
+├── TESTING_QUICKSTART.md          # ⚡ START HERE - Run tests in 5 minutes
 ├── UNIT_TESTING_PLAN.md           # Unit testing guide with Jest
 ├── INTEGRATION_TESTING_PLAN.md    # Integration testing guide (API + DB)
 └── END_TO_END_TESTING_PLAN.md     # E2E testing guide with scenarios
@@ -162,6 +163,8 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete deployment guide.
 ## 📚 Documentation
 
 ### Essential Docs (Read First)
+
+**⚡ TESTING QUICKSTART:** [TESTING_QUICKSTART.md](./TESTING_QUICKSTART.md) - Run 84 unit tests in 5 minutes!
 
 1. **[COMPREHENSIVE_FLOW_SUMMARY.md](./COMPREHENSIVE_FLOW_SUMMARY.md)** ⭐
    - Complete backend business logic
