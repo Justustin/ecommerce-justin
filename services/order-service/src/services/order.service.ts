@@ -85,7 +85,7 @@ export class OrderService {
         }
 
         // Use pre-calculated total_amount from repository (includes discounts)
-        const totalAmount = Number(order.subtotal || 0); // Convert Decimal to number if needed
+        const totalAmount = Number(order.total_amount || 0); // Convert Decimal to number if needed
 
         // Get factory_id from first order_item (all share the same factory)
         const factoryId = order.order_items[0].factory_id;

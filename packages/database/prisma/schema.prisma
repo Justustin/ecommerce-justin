@@ -631,6 +631,7 @@ model product_variants {
   order_items                order_items[]
   products                   products                     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   grosir_variant_allocations grosir_variant_allocations[]
+  grosir_bundle_config       grosir_bundle_config[]
   seller_inventory_variants  seller_inventory_variants[]  // NEW: Seller variant inventory
   seller_stock_movements     seller_stock_movements[]     // NEW: Stock movements
 
@@ -651,6 +652,33 @@ model grosir_variant_allocations {
 
   @@unique([product_id, variant_id])
   @@index([product_id], map: "idx_grosir_allocations_product")
+}
+
+/// Stores bundle configuration for warehouse ordering
+model grosir_bundle_config {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  product_id       String   @db.Uuid
+  variant_id       String?  @db.Uuid
+  units_per_bundle Int      // Number of units that come in one warehouse bundle
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+  products         products @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([product_id, variant_id])
+  @@index([product_id], map: "idx_grosir_bundle_config_product")
+}
+
+/// Stores warehouse tolerance settings for grosir ordering
+model grosir_warehouse_tolerance {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  product_id       String   @unique @db.Uuid
+  tolerance_bundles Int     @default(1) // Number of extra bundles allowed as tolerance
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+  products         products @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([product_id], map: "idx_warehouse_tolerance_product")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -687,6 +715,8 @@ model products {
   product_reviews            product_reviews[]
   product_variants           product_variants[]
   grosir_variant_allocations grosir_variant_allocations[]
+  grosir_bundle_config       grosir_bundle_config[]
+  grosir_warehouse_tolerance grosir_warehouse_tolerance?
   seller_inventory           seller_inventory[]           // NEW: Seller inventory
   categories                 categories                   @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factories                  factories?                   @relation(fields: [factory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -1375,4 +1405,46 @@ model seller_settlements {
   @@index([seller_id], map: "idx_seller_settlements_seller")
   @@index([status], map: "idx_seller_settlements_status")
   @@index([period_start, period_end], map: "idx_seller_settlements_period")
+}
+
+/// Warehouse inventory tracking for factory products
+model warehouse_inventory {
+  id                    String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  product_id            String   @db.Uuid
+  variant_id            String?  @db.Uuid
+  available_bundles     Int      @default(0) // Number of complete bundles available
+  reserved_bundles      Int      @default(0) // Bundles reserved for pending orders
+  total_units           Int      @default(0) // Total units (bundles × units_per_bundle)
+  last_restocked_at     DateTime? @db.Timestamptz(6)
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([product_id, variant_id])
+  @@index([product_id], map: "idx_warehouse_inventory_product")
+  @@index([available_bundles], map: "idx_warehouse_inventory_available")
+}
+
+/// Purchase orders sent to factories via WhatsApp
+model warehouse_purchase_orders {
+  id                    String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  factory_id            String   @db.Uuid
+  product_id            String   @db.Uuid
+  variant_id            String?  @db.Uuid
+  group_session_id      String   @db.Uuid
+  bundles_ordered       Int      // Number of bundles ordered from factory
+  units_per_bundle      Int      // Units per bundle at time of order
+  total_units           Int      // Total units ordered
+  status                String   @default("pending") @db.VarChar(50) // pending, confirmed, received, cancelled
+  whatsapp_message_id   String?  @db.VarChar(255)
+  sent_at               DateTime? @db.Timestamptz(6)
+  confirmed_at          DateTime? @db.Timestamptz(6)
+  received_at           DateTime? @db.Timestamptz(6)
+  notes                 String?
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([factory_id], map: "idx_warehouse_po_factory")
+  @@index([product_id], map: "idx_warehouse_po_product")
+  @@index([group_session_id], map: "idx_warehouse_po_session")
+  @@index([status], map: "idx_warehouse_po_status")
 }

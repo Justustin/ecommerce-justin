@@ -363,6 +363,23 @@ export class GroupBuyingService {
       throw new Error(`Variant not found in grosir allocation configuration.`);
     }
 
+    // Get bundle configuration for this variant
+    const bundleConfig = await prisma.grosir_bundle_config.findUnique({
+      where: {
+        product_id_variant_id: {
+          product_id: session.product_id,
+          variant_id: variantId || null
+        }
+      }
+    });
+
+    if (!bundleConfig) {
+      throw new Error(
+        `Bundle configuration not found for this product variant. ` +
+        `Please contact factory to set up bundle config.`
+      );
+    }
+
     // Get ALL participants in this session (exclude bots)
     const allParticipants = await prisma.group_participants.findMany({
       where: {
@@ -371,38 +388,31 @@ export class GroupBuyingService {
       }
     });
 
-    // Group orders by variant and calculate total per variant
-    const ordersByVariant: Record<string, number> = {};
-
-    for (const allocation of allocations) {
-      const variantKey = allocation.variant_id || 'null';
-      const variantOrders = allParticipants.filter(
-        p => (p.variant_id || 'null') === variantKey
-      );
-      ordersByVariant[variantKey] = variantOrders.reduce((sum, p) => sum + p.quantity, 0);
-    }
-
-    // Find minimum ordered quantity across ALL variants
-    const orderedQuantities = Object.values(ordersByVariant);
-    const minOrdered = orderedQuantities.length > 0 ? Math.min(...orderedQuantities) : 0;
-
-    // DYNAMIC CAP: min + (2 * allocation)
-    const dynamicCap = minOrdered + (2 * requestedAllocation.allocation_quantity);
-
     // Current orders for requested variant
-    const requestedVariantKey = variantId || 'null';
-    const currentOrdered = ordersByVariant[requestedVariantKey] || 0;
+    const currentOrdered = allParticipants
+      .filter(p => (p.variant_id || null) === (variantId || null))
+      .reduce((sum, p) => sum + p.quantity, 0);
 
-    // Available = dynamic cap - current ordered
-    const available = Math.max(0, dynamicCap - currentOrdered);
+    // BUNDLE-BASED TOLERANCE ALGORITHM
+    // bundleTolerance = max(1, floor(allocation / unitsPerBundle))
+    const bundleTolerance = Math.max(
+      1,
+      Math.floor(requestedAllocation.allocation_quantity / bundleConfig.units_per_bundle)
+    );
 
-    logger.info('Variant availability calculated', {
+    // available = allocation - currentOrdered + (bundleTolerance × unitsPerBundle)
+    const toleranceUnits = bundleTolerance * bundleConfig.units_per_bundle;
+    const maxAllowed = requestedAllocation.allocation_quantity + toleranceUnits;
+    const available = Math.max(0, maxAllowed - currentOrdered);
+
+    logger.info('Variant availability calculated (bundle-based)', {
       sessionId,
       variantId,
-      allOrders: ordersByVariant,
-      minOrdered,
       allocation: requestedAllocation.allocation_quantity,
-      dynamicCap,
+      unitsPerBundle: bundleConfig.units_per_bundle,
+      bundleTolerance,
+      toleranceUnits,
+      maxAllowed,
       currentOrdered,
       available,
       isLocked: available <= 0
@@ -411,13 +421,16 @@ export class GroupBuyingService {
     return {
       variantId,
       allocation: requestedAllocation.allocation_quantity,
-      maxAllowed: dynamicCap,  // This is now dynamic!
+      maxAllowed,
       totalOrdered: currentOrdered,
       available,
       isLocked: available <= 0,
       // Additional context for debugging
-      minOrderedAcrossVariants: minOrdered,
-      ordersByVariant
+      bundleConfig: {
+        unitsPerBundle: bundleConfig.units_per_bundle,
+        bundleTolerance,
+        toleranceUnits
+      }
     };
   }
 
@@ -804,6 +817,35 @@ export class GroupBuyingService {
                 where: { id: session.id },
                 data: { bot_participant_id: botParticipant.id }
               });
+
+              // Create payment record for bot participant (for audit/accounting)
+              try {
+                const botPayment = await prisma.payments.create({
+                  data: {
+                    user_id: botUserId,
+                    group_session_id: session.id,
+                    participant_id: botParticipant.id,
+                    order_amount: botParticipant.total_price,
+                    payment_method: 'internal_bot',
+                    payment_status: 'paid',
+                    is_escrow: true,
+                    paid_at: new Date(),
+                    payment_reference: `BOT-${session.id}-${botParticipant.id}`
+                  }
+                });
+
+                logger.info('Bot payment record created', {
+                  sessionId: session.id,
+                  paymentId: botPayment.id,
+                  amount: botParticipant.total_price
+                });
+              } catch (error: any) {
+                logger.error('Failed to create bot payment record', {
+                  sessionId: session.id,
+                  error: error.message
+                });
+                // Continue even if payment creation fails - bot is still useful for tier calculation
+              }
 
               botCreated = true;
               logger.info('Bot created to fill to 25% MOQ', {
