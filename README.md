@@ -50,7 +50,8 @@ ecommerce-justin/
 ├── COMPREHENSIVE_FLOW_SUMMARY.md  # Complete backend logic documentation
 ├── WALLET_SERVICE_API.md          # Wallet API docs with Swagger
 ├── CRON_SETUP.md                  # CRON job setup guide
-└── DEPLOYMENT.md                  # Production deployment guide
+├── DEPLOYMENT.md                  # Production deployment guide
+└── END_TO_END_TESTING_PLAN.md     # E2E testing guide with scenarios
 ```
 
 ---
@@ -188,11 +189,22 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete deployment guide.
    - Security checklist
    - Monitoring setup
 
+5. **[END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md)** 🧪
+   - Complete E2E testing guide
+   - 7 detailed test scenarios
+   - Test data preparation scripts
+   - Testing tools and methods
+   - Success criteria checklist
+
 ---
 
 ## 🧪 Testing
 
-### Wallet Service (Swagger UI)
+**For complete end-to-end testing guide, see [END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md)**
+
+### Quick Testing
+
+**Wallet Service (Swagger UI):**
 ```bash
 # Start wallet service
 cd services/wallet-service
@@ -202,8 +214,9 @@ npm run dev
 http://localhost:3010/api-docs
 ```
 
-### Group Buying Flow
-See [COMPREHENSIVE_FLOW_SUMMARY.md](./COMPREHENSIVE_FLOW_SUMMARY.md#testing-flows) for complete test scenarios.
+**Complete Test Scenarios:**
+- [END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md) - 7 detailed scenarios with cURL commands
+- [COMPREHENSIVE_FLOW_SUMMARY.md](./COMPREHENSIVE_FLOW_SUMMARY.md#testing-flows) - Business logic flows
 
 ---
 
