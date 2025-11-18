@@ -363,20 +363,20 @@ export class GroupBuyingService {
       throw new Error(`Variant not found in grosir allocation configuration.`);
     }
 
-    // Get bundle configuration for this variant
-    const bundleConfig = await prisma.grosir_bundle_config.findUnique({
+    // Get warehouse tolerance configuration for this variant
+    const tolerance = await prisma.grosir_warehouse_tolerance.findUnique({
       where: {
-        product_id_variant_id: {
+        unique_tolerance_product_variant: {
           product_id: session.product_id,
           variant_id: variantId || null
         }
       }
     });
 
-    if (!bundleConfig) {
+    if (!tolerance) {
       throw new Error(
-        `Bundle configuration not found for this product variant. ` +
-        `Please contact factory to set up bundle config.`
+        `Warehouse tolerance not configured for this product variant. ` +
+        `Please contact admin to set up warehouse tolerance.`
       );
     }
 
@@ -393,25 +393,16 @@ export class GroupBuyingService {
       .filter(p => (p.variant_id || null) === (variantId || null))
       .reduce((sum, p) => sum + p.quantity, 0);
 
-    // BUNDLE-BASED TOLERANCE ALGORITHM
-    // bundleTolerance = max(1, floor(allocation / unitsPerBundle))
-    const bundleTolerance = Math.max(
-      1,
-      Math.floor(requestedAllocation.allocation_quantity / bundleConfig.units_per_bundle)
-    );
-
-    // available = allocation - currentOrdered + (bundleTolerance × unitsPerBundle)
-    const toleranceUnits = bundleTolerance * bundleConfig.units_per_bundle;
-    const maxAllowed = requestedAllocation.allocation_quantity + toleranceUnits;
+    // WAREHOUSE TOLERANCE ALGORITHM
+    // maxAllowed = allocation + max_excess_units (from warehouse tolerance config)
+    const maxAllowed = requestedAllocation.allocation_quantity + tolerance.max_excess_units;
     const available = Math.max(0, maxAllowed - currentOrdered);
 
-    logger.info('Variant availability calculated (bundle-based)', {
+    logger.info('Variant availability calculated (warehouse tolerance)', {
       sessionId,
       variantId,
       allocation: requestedAllocation.allocation_quantity,
-      unitsPerBundle: bundleConfig.units_per_bundle,
-      bundleTolerance,
-      toleranceUnits,
+      maxExcessUnits: tolerance.max_excess_units,
       maxAllowed,
       currentOrdered,
       available,
@@ -426,10 +417,9 @@ export class GroupBuyingService {
       available,
       isLocked: available <= 0,
       // Additional context for debugging
-      bundleConfig: {
-        unitsPerBundle: bundleConfig.units_per_bundle,
-        bundleTolerance,
-        toleranceUnits
+      tolerance: {
+        maxExcessUnits: tolerance.max_excess_units,
+        clearanceRateEstimate: tolerance.clearance_rate_estimate
       }
     };
   }
