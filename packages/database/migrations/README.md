@@ -15,8 +15,12 @@ psql $DATABASE_URL -f packages/database/migrations/fix_shipments_pickup_task_id.
 # 2. Apply grosir system changes
 psql $DATABASE_URL -f packages/database/migrations/add_grosir_allocation_system.sql
 
-# 3. Verify it worked
+# 3. Add warehouse tables (NEW - for bundle-based tolerance algorithm)
+psql $DATABASE_URL -f packages/database/migrations/add_warehouse_tables.sql
+
+# 4. Verify it worked
 psql $DATABASE_URL -c "SELECT COUNT(*) FROM grosir_variant_allocations;"
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM grosir_bundle_config;"
 ```
 
 **Using pgAdmin or Database GUI:**
@@ -41,7 +45,41 @@ npx prisma db push
 
 ## Files Included
 
-### 1. `fix_shipments_pickup_task_id.sql`
+### 1. `add_warehouse_tables.sql` ⭐ NEW
+**Latest migration** - Adds warehouse and bundle configuration tables
+
+**What it creates:**
+- ✅ New table: `grosir_bundle_config` - Bundle configuration for warehouse ordering
+- ✅ New table: `grosir_warehouse_tolerance` - Warehouse tolerance settings
+- ✅ New table: `warehouse_inventory` - Inventory tracking for factory products
+- ✅ New table: `warehouse_purchase_orders` - Purchase orders sent to factories
+
+**Run migration:**
+```bash
+psql $DATABASE_URL -f packages/database/migrations/add_warehouse_tables.sql
+```
+
+**Rollback migration:**
+```bash
+psql $DATABASE_URL -f packages/database/migrations/rollback_warehouse_tables.sql
+```
+
+**Example setup:**
+```sql
+-- Configure bundle size for a product variant
+INSERT INTO grosir_bundle_config (product_id, variant_id, units_per_bundle)
+VALUES ('your-product-id', 'your-variant-id', 20);
+
+-- Set warehouse tolerance (optional, defaults to 1 bundle)
+INSERT INTO grosir_warehouse_tolerance (product_id, tolerance_bundles)
+VALUES ('your-product-id', 2);
+
+-- Check inventory
+SELECT * FROM warehouse_inventory
+WHERE product_id = 'your-product-id';
+```
+
+### 2. `fix_shipments_pickup_task_id.sql`
 **Run this FIRST** - Fixes the error:
 ```
 Made the column `pickup_task_id` on table `shipments` required,
@@ -52,7 +90,7 @@ but there are 7 existing NULL values.
 - Makes `pickup_task_id` nullable (allows direct shipments without pickup tasks)
 - This is the recommended solution
 
-### 2. `add_grosir_allocation_system.sql`
+### 3. `add_grosir_allocation_system.sql`
 **Main migration** - Creates grosir allocation tables and columns
 
 **What it creates:**
@@ -66,7 +104,7 @@ but there are 7 existing NULL values.
   - `grosir_units_needed`
 - ✅ New enum values: `pending_stock`, `stock_received`
 
-### 3. `sample_grosir_data.sql`
+### 4. `sample_grosir_data.sql`
 **Helper queries** - Shows how to set up your first grosir product
 
 **Includes:**
