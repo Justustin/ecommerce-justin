@@ -18,9 +18,9 @@ export class WebhookController {
             }
 
             const payload = req.body;
-            const { external_id, id: disbursement_id, status } = payload;
+            const { external_id, id: xendit_disbursement_id, status } = payload;
 
-            console.log(`Disbursement webhook received: ${disbursement_id} - Status: ${status}`);
+            console.log(`Disbursement webhook received: ${xendit_disbursement_id} - Status: ${status}`);
 
             // Find the withdrawal by external_id (which is our withdrawal.id)
             const withdrawal = await prisma.wallet_withdrawals.findUnique({

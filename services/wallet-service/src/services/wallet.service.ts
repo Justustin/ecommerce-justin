@@ -165,13 +165,13 @@ export class WalletService {
                     where: { id: withdrawal.id },
                     data: {
                         status: 'processing',
-                        disbursement_id: response.data.id,
+                        xendit_disbursement_id: response.data.id,
                         processed_at: new Date()
                     }
                 });
 
                 results.processed++;
-                console.log(`✓ Withdrawal ${withdrawal.id} sent to Xendit (disbursement_id: ${response.data.id})`);
+                console.log(`✓ Withdrawal ${withdrawal.id} sent to Xendit (xendit_disbursement_id: ${response.data.id})`);
 
             } catch (error: any) {
                 // Mark withdrawal as failed

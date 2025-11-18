@@ -1471,53 +1471,55 @@ model user_wallets {
   user_id         String   @unique @db.Uuid
   balance         Decimal  @default(0) @db.Decimal(15, 2)
   total_earned    Decimal  @default(0) @db.Decimal(15, 2)
+  total_spent     Decimal  @default(0) @db.Decimal(15, 2)
   total_withdrawn Decimal  @default(0) @db.Decimal(15, 2)
   created_at      DateTime @default(now()) @db.Timestamptz(6)
   updated_at      DateTime @default(now()) @db.Timestamptz(6)
   users           users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([user_id], map: "idx_user_wallets_user")
 }
 
 /// Transaction log for all wallet activities
 model wallet_transactions {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id         String   @db.Uuid
-  amount          Decimal  @db.Decimal(15, 2) // Positive for credit, negative for debit
-  type            String   @db.VarChar(50) // 'cashback', 'deposit', 'refund', 'withdrawal'
-  description     String
-  reference_id    String?  @db.Uuid
-  reference_type  String?  @db.VarChar(50) // 'group_session', 'payment', 'wallet_withdrawal'
-  balance_before  Decimal  @db.Decimal(15, 2)
-  balance_after   Decimal  @db.Decimal(15, 2)
-  created_at      DateTime @default(now()) @db.Timestamptz(6)
-  users           users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String   @db.Uuid
+  amount         Decimal  @db.Decimal(15, 2)
+  type           String   @db.VarChar(50)
+  description    String?
+  reference_type String?  @db.VarChar(50)
+  reference_id   String?  @db.Uuid
+  balance_before Decimal  @db.Decimal(15, 2)
+  balance_after  Decimal  @db.Decimal(15, 2)
+  metadata       Json?
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  users          users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([user_id], map: "idx_wallet_transactions_user")
+  @@index([reference_type, reference_id], map: "idx_wallet_transactions_reference")
   @@index([type], map: "idx_wallet_transactions_type")
-  @@index([created_at(sort: Desc)], map: "idx_wallet_transactions_created")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_wallet_transactions_user_created")
 }
 
 /// Withdrawal requests for batch processing
 model wallet_withdrawals {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id              String    @db.Uuid
-  amount               Decimal   @db.Decimal(15, 2) // Total amount requested
-  withdrawal_fee       Decimal   @db.Decimal(15, 2) // Platform fee
-  net_amount           Decimal   @db.Decimal(15, 2) // Amount user receives (amount - fee)
-  bank_code            String    @db.VarChar(20) // BCA, BNI, MANDIRI, BRI, etc.
-  bank_name            String    @db.VarChar(100)
-  account_number       String    @db.VarChar(50)
-  account_name         String    @db.VarChar(255)
-  status               String    @default("pending") @db.VarChar(50) // pending, processing, completed, failed
-  disbursement_id      String?   @db.VarChar(255) // Xendit disbursement ID
-  failure_reason       String?
-  requested_at         DateTime  @default(now()) @db.Timestamptz(6)
-  processed_at         DateTime? @db.Timestamptz(6)
-  completed_at         DateTime? @db.Timestamptz(6)
-  users                users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String    @db.Uuid
+  amount                 Decimal   @db.Decimal(15, 2)
+  withdrawal_fee         Decimal   @default(2500) @db.Decimal(15, 2)
+  net_amount             Decimal   @db.Decimal(15, 2)
+  bank_code              String    @db.VarChar(10)
+  bank_name              String    @db.VarChar(100)
+  account_number         String    @db.VarChar(50)
+  account_name           String    @db.VarChar(255)
+  status                 String    @default("pending") @db.VarChar(20)
+  xendit_disbursement_id String?   @db.VarChar(255)
+  requested_at           DateTime  @default(now()) @db.Timestamptz(6)
+  processed_at           DateTime? @db.Timestamptz(6)
+  completed_at           DateTime? @db.Timestamptz(6)
+  failed_reason          String?
+  admin_notes            String?
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  users                  users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([user_id], map: "idx_wallet_withdrawals_user")
   @@index([status], map: "idx_wallet_withdrawals_status")
-  @@index([requested_at(sort: Desc)], map: "idx_wallet_withdrawals_requested")
 }
