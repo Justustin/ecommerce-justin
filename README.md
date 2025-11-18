@@ -51,6 +51,8 @@ ecommerce-justin/
 ├── WALLET_SERVICE_API.md          # Wallet API docs with Swagger
 ├── CRON_SETUP.md                  # CRON job setup guide
 ├── DEPLOYMENT.md                  # Production deployment guide
+├── UNIT_TESTING_PLAN.md           # Unit testing guide with Jest
+├── INTEGRATION_TESTING_PLAN.md    # Integration testing guide (API + DB)
 └── END_TO_END_TESTING_PLAN.md     # E2E testing guide with scenarios
 ```
 
@@ -189,7 +191,21 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete deployment guide.
    - Security checklist
    - Monitoring setup
 
-5. **[END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md)** 🧪
+5. **[UNIT_TESTING_PLAN.md](./UNIT_TESTING_PLAN.md)** 🔬
+   - Unit testing guide with Jest
+   - Business logic tests (tier pricing, refunds, fees)
+   - Mock strategies for external dependencies
+   - Test coverage goals (70%+)
+   - CI/CD integration
+
+6. **[INTEGRATION_TESTING_PLAN.md](./INTEGRATION_TESTING_PLAN.md)** 🔗
+   - API + Database integration tests
+   - Service-to-service communication tests
+   - Webhook integration tests
+   - Database transaction tests
+   - Test data management
+
+7. **[END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md)** 🧪
    - Complete E2E testing guide
    - 7 detailed test scenarios
    - Test data preparation scripts
@@ -200,23 +216,49 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete deployment guide.
 
 ## 🧪 Testing
 
-**For complete end-to-end testing guide, see [END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md)**
+### Testing Strategy (Test Pyramid)
+
+```
+      /\
+     /E2E\     ← Few (7 scenarios) - Complete user flows
+    /____\
+   /      \
+  /Integr.\   ← Some (20%) - API + DB + Service communication
+ /________\
+/          \
+/   Unit    \  ← Many (70%) - Business logic functions
+/____________\
+```
+
+**Three-tier testing approach:**
+1. **[Unit Tests](./UNIT_TESTING_PLAN.md)** - Fast, isolated function tests
+2. **[Integration Tests](./INTEGRATION_TESTING_PLAN.md)** - API endpoints with database
+3. **[End-to-End Tests](./END_TO_END_TESTING_PLAN.md)** - Complete business flows
 
 ### Quick Testing
 
-**Wallet Service (Swagger UI):**
+**Run Unit Tests:**
 ```bash
-# Start wallet service
-cd services/wallet-service
-npm run dev
-
-# Open browser
-http://localhost:3010/api-docs
+npm test
+npm run test:coverage
 ```
 
-**Complete Test Scenarios:**
-- [END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md) - 7 detailed scenarios with cURL commands
-- [COMPREHENSIVE_FLOW_SUMMARY.md](./COMPREHENSIVE_FLOW_SUMMARY.md#testing-flows) - Business logic flows
+**Run Integration Tests:**
+```bash
+npm run test:integration
+```
+
+**Wallet Service (Swagger UI):**
+```bash
+cd services/wallet-service
+npm run dev
+# Open http://localhost:3010/api-docs
+```
+
+**Complete Testing Guides:**
+- **[UNIT_TESTING_PLAN.md](./UNIT_TESTING_PLAN.md)** - Jest setup, business logic tests, mocking
+- **[INTEGRATION_TESTING_PLAN.md](./INTEGRATION_TESTING_PLAN.md)** - API tests, webhooks, service integration
+- **[END_TO_END_TESTING_PLAN.md](./END_TO_END_TESTING_PLAN.md)** - 7 scenarios with cURL commands
 
 ---
 
