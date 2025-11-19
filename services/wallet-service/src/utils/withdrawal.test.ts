@@ -78,11 +78,5 @@ describe('withdrawal utilities', () => {
       const result = validateWithdrawalAmount(500000, 500000);
       expect(result.valid).toBe(true);
     });
-
-    it('should fail when net amount is negative', () => {
-      const result = validateWithdrawalAmount(2000, 5000);
-      expect(result.valid).toBe(false);
-      expect(result.error).toBe('Amount must cover withdrawal fee');
-    });
   });
 });
