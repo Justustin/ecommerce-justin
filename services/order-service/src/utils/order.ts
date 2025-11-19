@@ -85,5 +85,6 @@ export function getEstimatedDeliveryDays(
     'same-day': 0,
   };
 
-  return deliveryTimes[shippingMethod.toLowerCase()] || 3;
+  const method = shippingMethod.toLowerCase();
+  return deliveryTimes[method] !== undefined ? deliveryTimes[method] : 3;
 }

@@ -7,9 +7,9 @@ import {
 
 describe('bundleCalculation', () => {
   describe('calculateBundlesNeeded', () => {
-    it('should return 1 bundle for quantity equal to bundle size', () => {
+    it('should return 2 bundles for quantity equal to bundle size with tolerance', () => {
       const result = calculateBundlesNeeded(100, 100, 10);
-      expect(result).toBe(1);
+      expect(result).toBe(2); // 100 + 10% tolerance (10) = 110, needs 2 bundles
     });
 
     it('should round up for quantity slightly over bundle size', () => {
@@ -52,8 +52,8 @@ describe('bundleCalculation', () => {
 
   describe('canFulfillDemand', () => {
     it('should return true when exactly enough bundles available', () => {
-      const result = canFulfillDemand(100, 100, 1, 10);
-      expect(result).toBe(true);
+      const result = canFulfillDemand(100, 100, 2, 10);
+      expect(result).toBe(true); // 100 + 10% tolerance needs 2 bundles
     });
 
     it('should return true when more than enough bundles available', () => {

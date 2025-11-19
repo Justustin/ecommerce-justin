@@ -1,5 +1,5 @@
 // Payment webhook signature verification utilities
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 export function verifyXenditSignature(
   webhookToken: string,
@@ -12,11 +12,16 @@ export function verifyXenditSignature(
     .update(data)
     .digest('hex');
 
+  // Check if signatures have same length before timing-safe comparison
+  const expectedBuffer = Buffer.from(expectedSignature);
+  const receivedBuffer = Buffer.from(receivedSignature);
+
+  if (expectedBuffer.length !== receivedBuffer.length) {
+    return false;
+  }
+
   // Use timing-safe comparison to prevent timing attacks
-  return crypto.timingSafeEqual(
-    Buffer.from(expectedSignature),
-    Buffer.from(receivedSignature)
-  );
+  return crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
 }
 
 export function validatePaymentAmount(
