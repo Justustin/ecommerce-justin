@@ -1,5 +1,5 @@
 // Payment webhook signature verification utilities
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 export function verifyXenditSignature(
   webhookToken: string,
@@ -11,6 +11,11 @@ export function verifyXenditSignature(
     .createHmac('sha256', webhookToken)
     .update(data)
     .digest('hex');
+
+  // Check if lengths match before timing-safe comparison
+  if (expectedSignature.length !== receivedSignature.length) {
+    return false;
+  }
 
   // Use timing-safe comparison to prevent timing attacks
   return crypto.timingSafeEqual(

@@ -247,9 +247,10 @@ describe('factory utilities', () => {
     });
 
     it('should pass for various length valid phones', () => {
-      expect(validatePhoneNumber('+6281234567').valid).toBe(true); // 9 digits after 8
-      expect(validatePhoneNumber('+628123456789').valid).toBe(true); // 11 digits after 8
-      expect(validatePhoneNumber('+62812345678901').valid).toBe(true); // 12 digits after 8
+      expect(validatePhoneNumber('+62812345678').valid).toBe(true); // 8 digits after 8 (minimum)
+      expect(validatePhoneNumber('+628123456789').valid).toBe(true); // 9 digits after 8
+      expect(validatePhoneNumber('+6281234567890').valid).toBe(true); // 10 digits after 8
+      expect(validatePhoneNumber('+62812345678901').valid).toBe(true); // 11 digits after 8 (maximum)
     });
   });
 

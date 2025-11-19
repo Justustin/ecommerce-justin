@@ -78,13 +78,12 @@ export function calculateRefundAmount(
 export function getEstimatedDeliveryDays(
   shippingMethod: string
 ): number {
-  const method = shippingMethod.toLowerCase();
   const deliveryTimes: Record<string, number> = {
-    express: 1,
-    regular: 3,
-    economy: 7,
+    'express': 1,
+    'regular': 3,
+    'economy': 7,
     'same-day': 0,
   };
 
-  return deliveryTimes[method] !== undefined ? deliveryTimes[method] : 3;
+  return deliveryTimes[shippingMethod.toLowerCase()] || 3;
 }

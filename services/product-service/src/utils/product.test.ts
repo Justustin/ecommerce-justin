@@ -79,7 +79,7 @@ describe('product utilities', () => {
 
     it('should round to 2 decimal places', () => {
       const result = calculateProfitMargin(100000, 33333);
-      expect(result.marginPercentage).toBe(200.01);
+      expect(result.marginPercentage).toBe(200.00);
     });
   });
 

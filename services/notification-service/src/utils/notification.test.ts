@@ -241,8 +241,8 @@ describe('notification utilities', () => {
     });
 
     it('should remove spaces and hyphens', () => {
-      expect(formatPhoneForWhatsApp('+62 812 3456 7890')).toBe('628123456789');
-      expect(formatPhoneForWhatsApp('+62-812-345-6789')).toBe('6281234567890');
+      expect(formatPhoneForWhatsApp('+62 812 3456 7890')).toBe('6281234567890');
+      expect(formatPhoneForWhatsApp('+62-812-345-6789')).toBe('628123456789');
     });
 
     it('should throw error for empty phone', () => {
