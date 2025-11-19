@@ -1,7 +1,5 @@
-import { PrismaClient } from '@repo/database';
+import { prisma } from '@repo/database';
 import { faker } from '@faker-js/faker';
-
-const prisma = new PrismaClient();
 
 export async function createTestUser(overrides: any = {}) {
   return await prisma.users.create({

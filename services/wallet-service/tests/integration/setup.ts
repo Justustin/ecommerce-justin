@@ -1,14 +1,7 @@
-import { PrismaClient } from '@repo/database';
-
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL_TEST || process.env.DATABASE_URL,
-    },
-  },
-});
+import { prisma } from '@repo/database';
 
 beforeAll(async () => {
+  // Database is already connected via the imported prisma instance
   await prisma.$connect();
 });
 
